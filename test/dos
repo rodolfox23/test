@@ -1,54 +1,8 @@
-Como
-Área de operaciones / adquirencia (Getnet UY)
+Me faltaría confirmar:
 
-Quiero
-que el sistema ejecute automáticamente el cierre diario de las transacciones POS que no hayan sido cerradas por el comercio
-
-Para
-asegurar la presentación de las transacciones dentro de las 24 horas exigidas por Mastercard y Visa, evitando penalidades por presentación fuera de plazo
-
-Descripción
-Actualmente el cierre de transacciones depende de la acción manual del comercio, lo cual genera riesgo de transacciones abiertas que no son presentadas en tiempo y forma.
-
-Se requiere implementar un proceso automático de cierre diario que fuerce el cierre de estas transacciones pendientes, asegurando su confirmación y disponibilidad para clearing dentro del SLA de las marcas.
-
-El proceso deberá ejecutarse en un horario definido y aplicarse a todas las transacciones del canal POS.
-
-Criterios de Aceptación
-CA1 - Ejecución automática
-El sistema debe ejecutar un proceso de actualización de id_transaction_status (de 2 a 3) de la tabla AU_OPEN_TRANSACTION  y CONFIRMATION_DATE todos los días a las 03:00 AM.
-CA2 - Alcance de transacciones
-El proceso debe incluir transacciones pendientes de cierre correspondientes a:
-Autorizaciones
-Devoluciones
-Checkout
-Quedan exclu[idas las reversas (MTI 400)
-CA3 - Exclusiones
-Las transacciones tipo Checkin no deben ser incluidas en el cierre automático.
-CA4 - Resultado del proceso
-Las transacciones cerradas automáticamente deben:
-Quedar confirmadas
-Estar disponibles para su procesamiento e importación
-CA5 - Cumplimiento de SLA
-Las transacciones cerradas automáticamente deben poder ser presentadas a las marcas dentro de las 24 horas desde su realización.
-CA6 - Objetivos operativos
-El proceso debe:
-Evitar transacciones abiertas fuera de plazo
-Establecer un punto de corte único
-Reducir riesgos de conciliación
-Reglas de Negocio
-El cierre automático solo aplica a transacciones que permanezcan abiertas al momento de la ejecución del proceso.
-El cierre aplica a transacciones del canal POS de Getnet para Visa y Mastercard.
-El proceso debe ejecutarse en modalidad batch (implícito por naturaleza del cierre y el contexto del documento).
-Consideraciones / Suposiciones
-Se asume que todas las transacciones pendientes son elegibles para cierre sin validación adicional.
-No se detalla validación de estados inconsistentes o errores (gap funcional a confirmar).
-No se define comportamiento en caso de reintentos o fallas del proceso.
-Dependencias
-Disponibilidad de datos en backend / switch
-Fuera de alcance (según documento)
-Modificaciones en el comportamiento de transacciones Checkin
-Cambios en integración con comercios
-Notas adicionales (para backlog refinement)
-Confirmar si el horario (03:00 AM) debe ser parametrizable
-Definir logging/auditoría del cierre automático (Loguear Fecha, duración, cantidad de registros afectados)
+1. Campos exactos de AU_OPEN_TRANSACTION para identificar canal POS, MTI, tipo de transacción, marca y Checkin.
+2. Si el batch cierra todas las transacciones abiertas al momento de ejecución o solo hasta una fecha/hora de corte.
+3. Si CONFIRMATION_DATE debe usar la fecha/hora del batch o una fecha contable.
+4. Qué hacer ante fallas: reintento automático, ejecución manual o solo log de error.
+5. Nombre oficial y retención de la tabla auxiliar de auditoría.
+6. Confirmar que MTI 400/reversas quedan siempre fuera porque son tratadas por reversa por corte.
