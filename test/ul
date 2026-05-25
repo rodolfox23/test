@@ -1,0 +1,134 @@
+
+Me faltaría confirmar:
+
+ 
+
+1. Campos exactos de AU_OPEN_TRANSACTION para identificar canal POS, MTI, tipo de transacción, marca y Checkin.
+2. Si el batch cierra todas las transacciones abiertas al momento de ejecución o solo hasta una fecha/hora de corte.
+3. Si CONFIRMATION_DATE debe usar la fecha/hora del batch o una fecha contable.
+4. Qué hacer ante fallas: reintento automático, ejecución manual o solo log de error.
+5. Nombre oficial y retención de la tabla auxiliar de auditoría.
+6. Confirmar que MTI 400/reversas quedan siempre fuera porque son tratadas por reversa por corte.
+
+me refiero a esto Link User Story 491900 2... by Rodolfo Figueroa
+Thursday 3:47 PM
+Rodolfo Figueroa
+
+me refiero a esto User Story 491900 2823902 Cierre automático diario de transacciones POS para cumplimiento de presen…
+
+a ver..jaaj varias cositas by Fabricio Henderson
+Fabricio Henderson
+Thursday 3:50 PM
+
+a ver..jaaj varias cositas
+
+vi que en el azure esta adjunto el dic de t... by Fabricio Henderson
+Fabricio Henderson
+Thursday 3:51 PM
+
+vi que en el azure esta adjunto el dic de tipo de transacciones
+
+en ese esta como se determina el tipo de tr... by Fabricio Henderson
+Fabricio Henderson
+Thursday 3:51 PM
+
+en ese esta como se determina el tipo de transaccion
+
+Check-In                                   ... by Fabricio Henderson
+Fabricio Henderson
+Thursday 3:51 PM
+
+Check-In                                                     (((N_MTI = 100) OR (N_MTI = 200)) AND (N_PCODE_A = 0) AND (N_PRODUCT_TYPE = 1) AND (N_INSTALLMENTS_QUANTITY = 1) AND (S_FINAL_AUTHORIZATION_INDICATOR = '02'))
+
+despues hay que ver de donde se obtienen es... by Fabricio Henderson
+Fabricio Henderson
+Thursday 3:52 PM
+
+despues hay que ver de donde se obtienen esas variables 
+
+es que revise todo ajaj by Rodolfo Figueroa
+Thursday 3:53 PM
+Rodolfo Figueroa
+
+es que revise todo ajaj
+
+jaja si dale, trato de responder de a poco by Fabricio Henderson
+Fabricio Henderson
+Thursday 3:53 PM
+
+jaja si dale, trato de responder de a poco
+
+no se si lanzaste los test funcionales by Fabricio Henderson
+Fabricio Henderson
+Thursday 3:54 PM
+
+no se si lanzaste los test funcionales
+
+asi las tablas con datos quedan mas facil d... by Fabricio Henderson
+Fabricio Henderson
+Thursday 3:54 PM
+
+asi las tablas con datos quedan mas facil de entender
+
+ah vale entiendo by Rodolfo Figueroa
+Thursday 3:54 PM
+Rodolfo Figueroa
+
+ah vale entiendo
+
+1. Campos exactos de AU_OPEN_TRANSACTION pa... by Fabricio Henderson
+Fabricio Henderson
+Thursday 4:07 PM
+
+1. Campos exactos de AU_OPEN_TRANSACTION para identificar canal POS, MTI, tipo de transacción, marca y Checkin.
+
+--canal
+
+AU_OPEN_TRANSACTION.ID_MESSAGE_CHANNEL
+
+--mti
+
+AU_OPEN_TRANSACTION.MTI_CODE
+
+--tipo
+
+AU_OPEN_TRANSACTION.TRANSACTION_CATEGORY
+
+AU_OPEN_TRANSACTION.TRANSACTION_TYPE
+
+ 
+
+--marca
+
+AUA_TRX_ACQUIRING_DATA.ID_BRAND
+
+AUA_TRX_ACQUIRING_DATA.ID_TRANSACTION_PROFILE
+
+--tipo de transacción
+
+ 
+
+los 2 campos basicos para saber tipo de transaccion son el AU_OPEN_TRANSACTION.MTI_CODE y el AU_OPEN_TRANSACTION.PROCESSING_CODE
+
+y para algunas transacciones necesita algun otro dato para poder determinar que cosa es 
+
+estas by Rodolfo Figueroa
+Thursday 5:34 PM
+Rodolfo Figueroa
+
+estas
+
+INSTALLMENT_SEQUENCE_COUNT FINAL_AUTHORIZAT... by Fabricio Henderson
+Fabricio Henderson
+Thursday 5:46 PM
+
+INSTALLMENT_SEQUENCE_COUNT
+
+FINAL_AUTHORIZATION_INDICATOR
+
+estas by Rodolfo Figueroa
+10:32 AM
+Rodolfo Figueroa
+
+estas
+
