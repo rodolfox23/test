@@ -1,1 +1,4 @@
-vcccvvccv
+\Crear el SP
+crear job para agendar ejecución
+validar plan de ejecución
+realizar pruebas con concurrencia en tablas au_open_transaction y aua_trx_acquiring_data para acegurar no afectar performance ni generar bloqueos que puedan afectar el servicio
