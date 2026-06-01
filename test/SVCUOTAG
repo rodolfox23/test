@@ -1,0 +1,576 @@
+!#####################################################################!
+!#                                                                   #!
+!#                           SERVER CUOTAS                           #!
+!#                           -------------                           #!
+!#                                                                   #!
+!#    Autor : S. S. R. (Optimisa S.A.)                               #!
+!#    Fecha : Mayo 2010                                              #!
+!#                                                                   #!
+!#                                                                   #!
+!#####################################################################!
+!*********************************************************************!
+!* RPQ      : #2-3                                                   *!
+!* Autor    : S.S.R (Optimisa)                                       *!
+!* Fecha    : 01/07/2010                                             *!
+!* Objetivo : 1.- Incorpora 2 y 3 cuotas a las promociones.          *!
+!*            2.- Incorpora 0's a los acmpor RUT y CODIGO ACTIVIDAD  *!
+!*                Cuando estos poseen espacios.                      *!
+!*                                                                   *!
+!*********************************************************************!
+!* RPQ      : #799                                                   *!
+!* Autor    : S.S.R (Optimisa)                                       *!
+!* Fecha    : 10/04/2012                                             *!
+!* OBJ-A    : Soluciona problema detectado en tamaño de buffer para  *!
+!*            cuotas. Se aumenta en una ocurrencia.                  *!
+!*                                                                   *!
+!*********************************************************************!
+
+
+block svcuotas;
+
+?section globals
+?page "globals"
+
+
+literal  stop_desde_red_l      =  2,
+         abort                 =  1,
+         max_srvrs_l           =  100,
+         srv_up_l              =    1,
+         srv_dwn_l             =    0,
+         max_msg_lgth_l        = 13312,
+         rd_err_l              =    0,
+         rply_err_l            =    1,
+         ciparm_err_l          =    2,
+         rcvinf_err_l          =    3,
+         rcv_open_err_l        =    4,
+         no_svr_err_l          =    5,
+         strtup_err_l          =    6,
+         l_init_err_l          =    7,
+         no_idx_err_l          =    8,
+         svr_shtdn_l           =    9,
+         parm_err_l            =   10,
+         cntl_txt_lgth_l       =   60, ! No of bytes in error msgs of !
+                                       ! the "cntl_msgs" table below. !
+         ttl_cntl_msgs_l       =    2, ! Total no of CNTL messages    !
+         no_error_l            =    0,
+         cntl_error_l          =   11;
+
+
+!  cntl-specific log msg numbers range from 900 onwards               !
+
+literal   cntl_msg_num_l       =   900, ! Used as a base value for    !
+                                        ! translating nos > 900 for   !
+                                        ! indexing into cntl_msgs     !
+                                        ! table                       !
+          srv_not_bnd_l        =   900,
+          srv_sht_dwn_l        =   901;
+
+?source =okafm_afmsvtg(
+?    error_literals,
+?    msg_codes )
+?list
+
+?source =oksrc_oktg(
+?    fe_literals,
+?    std_def,
+?    std_literals )
+?list
+
+?source =oklib_oklibtg(
+?    lib_appl_literals,
+?    lib_appl_stat_detl )
+?list
+
+?source $system.zspidef.zemstal
+
+?source $system.zspidef.zspital
+
+?page "globals structs"
+
+struct   passthru_def (*);
+    begin
+    int         abort;
+    int         lnmap_addr;
+    int         msg_lgth;
+    struct      msg;
+        begin
+        string byte[ 0:131];
+        end;
+    end;
+
+struct   process_def (*);
+    begin
+    int         pro_hndl[ 0:9 ];
+    end;
+
+struct   startup_def (*);
+    begin
+    int         lgth;
+    struct      msg;
+       begin
+       string  byte[0:39];
+       end;
+    end;
+
+struct  mensaje^red (*);
+   begin
+   int     tcode;
+   string  amt^tran[ 0:11 ];
+   string  card^typ[ 0:1 ];
+   string  nro^cuota[ 0:1 ];
+   string  dia;
+   string  hora[0:3];
+   string  prefix[0:10];
+   string  reta^rut[ 0:9 ];
+   struct  rut = reta^rut;
+      begin
+      string dato[0:8];
+      string dv;
+      end;
+   string  cod^acti[ 0:2 ];
+   string  reta^id[ 0:18];
+   string  pan[ 0:18];
+   string  seq^num[0:11];
+   filler  1;
+   string  glosa^p[ 0:110 ];
+   struct  respuesta = glosa^p;
+      begin
+      string  id^promo[0:9];
+      string  valor^cuota[0:11];
+      string  tipo^cuota;
+      string  cuota^trans;
+      string  tipo^promo;
+      string  glosa[0:20];
+      filler  65;
+      end;
+   string  no^usados[ 0:39 ];
+   end;
+
+
+struct log^def (*);
+   begin
+   string tipo;
+   string seq^num[0:11];
+   string id^promo[0:9];
+   string fecha[0:9];    !dd/mm/yyyy!
+   string inicio[0:10];  !hh:mm:ss:cc!
+   string fin[0:10];     !hh:mm:ss:cc!
+   string proceso[0:5];
+   filler 1;
+   end;
+
+struct receive^info^def (*);
+   begin
+   int    io^type;
+   int    max^reply^count;
+   int    message^tag;
+   int    file^num;
+   int    sync^id[0:1];
+   int    sender^handle[0:9];
+   int    open^label;
+   end;
+
+
+struct reg^ficha^promo^def (*);
+   begin
+   struct  tipo^promo;              !PA, PB, PC!
+      begin string byte[0:1]; end;
+   struct  fecha^promo;             !yymmdd!
+      begin string byte[0:5]; end;
+   struct  id^promo;                !ID promocion asignado por Back-office!
+      begin string byte[0:9]; end;
+   int     id^interno;              !unico, dado por Back-office!
+                                    !valor [1:400]!
+   struct  fecha^vencimiento;       !yymmdd!
+      begin string byte[0:5]; end;
+   fixed   monto1;      !monto comparacion o monto minimo!
+   fixed   monto2;      !monto maximo!
+   string  monto;       !0 - NA, 1 - >=, 2 - <=, 3 - [], 4 - =!
+   string  dia^hora;    !0 - NA, 1 - IN!
+   string  bin;         !0 - NA, 1 - IN, 2 - EX!
+   string  rut;         !0 - NA, 1 - IN, 2 - EX!
+   string  rubro;       !0 - NA, 1 - IN, 2 - EX!
+   string  comercio;    !0 - NA, 1 - IN, 2 - EX!
+   string  tarjetas;    !0 - NA, 1 - IN, 2 - EX!
+   filler  1;           !evitar error de paginacion de memoria!
+   end;
+
+
+struct reg^marca^def (*);
+   begin
+   int    id^interno;
+   struct id^marca;
+      begin string byte[0:1]; end;
+   end;
+
+
+
+struct reg^cuotas^def (*);
+   begin
+   int    id^interno;
+   int    cuota^minima;
+   int    cuota^maxima;
+   string cuota^transformada;
+   filler 1;
+   end;
+
+
+
+
+struct reg^dia^hora^def (*);
+  begin
+  int    id^interno;
+  string dia^inicio;
+  string dia^fin;
+  struct hora^inicio;
+     begin string byte[0:3]; end;
+  struct hora^fin;
+     begin string byte[0:3]; end;
+  end;
+
+
+struct reg^bin^def (*);
+   begin
+   struct   id^bin;
+      begin string byte[0:10]; end;
+   filler   1;                      !evita problema paginacion memoria!
+   int      cant^promo;             !cantidad de promociones!
+   struct   promo[0:399];
+      begin int id^interno; end;    !id^interno asociado a id^promo!
+   end;
+
+
+struct reg^rubro^def (*);
+   begin
+   struct   id^rubro;
+      begin string byte[0:2]; end;
+   filler   1;                      !evita problema paginacion memoria!
+   int      cant^promo;             !cantidad de promociones!
+   struct   promo[0:399];
+      begin int id^interno; end;    !id^interno asociado a id^promo!
+   end;
+
+
+struct reg^tarjeta^def (*);
+   begin
+   struct   id^tarjeta;
+      begin string byte[0:18]; end;
+   filler   1;                      !evita problema paginacion memoria!
+   int      cant^promo;             !cantidad de promociones!
+   struct   promo[0:399];
+      begin int id^interno; end;    !id^interno asociado a id^promo!
+   end;
+
+struct reg^rut^def (*);
+   begin
+   struct   id^rut;
+      begin string byte[0:9]; end;
+   int      cant^promo;             !cantidad de promociones!
+   struct   promo[0:399];
+      begin
+      int id^interno;               !id^interno asociado a id^promo!
+      int cuota^minimo;             !rango de cuotas permitido, puede tener!
+      int cuota^maximo;             !0 -> rango no pasado!
+      end;                          !0 -> en promo EMISOR!
+   end;
+
+
+struct reg^comercio^def (*);
+   begin
+   struct   id^comercio;
+      begin string byte[0:18]; end;
+   filler 1;                        !para evitar problemas de paginacion!
+   int      cant^promo;             !cantidad de promociones!
+   struct   promo[0:399];
+      begin
+      int id^interno;               !id^interno asociado a id^promo!
+      int cuota^minimo;             !rango de cuotas permitido!
+      int cuota^maximo;             !0 -> rango no pasado!
+      end;
+   end;
+
+
+struct segmentos(*);
+  begin
+  int .ext ptr;
+  end;
+
+
+
+struct nodo(*);
+   begin
+   string  inicio;
+   string  fin;
+   string  h^inicio[0:3];
+   string  h^fin[0:3];
+   int     .EXT ptr^next;
+   end;
+
+
+struct nodo2(*);
+   begin
+   string  bin[0:10];
+   string  colision;
+   int     vector[0:24];
+   int     .EXT ptr^next;
+   end;
+
+
+struct nodo3(*);
+   begin
+   string  rubro[0:2];
+   string  colision;
+   int     vector[0:24];
+   int     .EXT ptr^next;
+   end;
+
+
+struct nodo4(*);
+   begin
+   string  rut[0:9];
+   int     vector[0:24];
+   int     .EXT ptr^next;
+   int     cant^promo;
+   struct  promos[0:399];
+      begin
+         int  id^interno;
+         int  c^min;
+         int  c^max;
+      end;
+   end;
+
+
+struct nodo2^t(*);
+   begin
+   !tabla re-hash!
+   struct  t^rehash[0:10];
+      begin
+      int .ext ptr^dir;
+      end;
+   end;
+
+
+
+
+
+
+
+?nolist, source =system_sysmsgs(
+?    ci^assign,
+?    ci^param,
+?    ci^startup )
+?list
+
+?nolist, source =basrc_baddltal(
+?     lconf
+?     lconf^key
+?     lconf_
+?     lconf_key
+?     msg_file_maint_1024_ext
+?     msg_header_ext
+?     )
+?list
+
+?page "globals"
+
+
+int      .pl[0:199],
+          cnt_read := 0;
+
+
+struct .conf;
+   begin
+   string  fecha[0:9];
+   int     colector^name[0:11];
+   int     red[0:2];
+   string  red^text[0:5] = red;
+   int     red^len;
+   end;
+
+struct .fcb;
+   begin
+   int       lconf^file[0:11],
+             lconf^file^num;
+   int       log^file[0:11],
+             log^file^num;
+   int       log^file^num^hold;
+   int       template^file[0:11];
+
+   int       ficha^file[0:11],
+             ficha^file^num;
+   int       marca^file[0:11],
+             marca^file^num;
+   int       cuotas^file[0:11],
+             cuotas^file^num;
+   int       bines^file[0:11],
+             bines^file^num;
+   int       dia^hora^file[0:11],
+             dia^hora^file^num;
+   int       rut^file[0:11],
+             rut^file^num;
+   int       rubro^file[0:11],
+             rubro^file^num;
+   int       comercio^file[0:11],
+             comercio^file^num;
+   int       tarjeta^file[0:11],
+             tarjeta^file^num;
+   end;
+
+
+
+struct .num;
+   begin
+   fixed  amount;
+   int    cuotas;
+   fixed  valor^cuota;
+   end;
+
+string   .ptr^text  := @pl '<<' 1;
+fixed     lote := 0F,
+          cont^lote := 0F;
+int(32)   tiempo := 0D;
+
+struct   .receive_info;
+   begin
+   int file^num;
+   int message^tag;
+   int open^count;
+   int open^label;
+   int open^track;
+   struct  receive^info(receive^info^def);
+   end;
+
+struct   .log(log^def);
+
+struct   .strtup_g( startup_def );
+
+
+!tabla de fichas!
+struct   .ext t^fichas( reg^ficha^promo^def) [0:399];
+
+
+!tabla de cuotas (EMISOR)!
+! Inicio RPQ: #2-3 !
+--struct   .ext t^cuotas[0:43]; !las cuotas van de 4 - 48 !
+
+!INICIO RPQ: #799!
+--struct   .ext t^cuotas[0:45]; !las cuotas van de 2 - 48 !
+struct   .ext t^cuotas[0:46]; !las cuotas van de 2 - 48 !
+!FIN RPQ: #799!
+  begin
+  int    vector[0:24];
+  string transformada[0:399];
+  end;
+
+! Fin RPQ: #2-3 !
+
+!tabla marca (EMISOR)!
+struct   .ext t^marca;
+   begin
+   struct visa;
+      begin int vector[0:24]; end;
+   struct master;
+      begin int vector[0:24]; end;
+   struct amex;
+      begin int vector[0:24]; end;
+   struct diners;
+      begin int vector[0:24]; end;
+   struct magna;
+       begin int vector[0:24]; end;
+   end;
+
+
+!tabla dia-hora (EMISOR)!
+struct   .ext t^dia^hora[0:399];
+   begin
+   int .ext ptr^dir;
+   end;
+
+
+!tabla hash bin (EMISOR)!
+struct   .ext hash^bin[0:808];
+   begin
+   int .ext ptr^dir;
+   end;
+
+
+!tabla hash rubro (EMISOR)!
+struct   .ext hash^rubro[0:598];
+   begin
+   int .ext ptr^dir;
+   end;
+
+
+!tabla hash rut (EMISOR)!
+struct   .ext hash^rut[0:2998];
+   begin
+   int .ext ptr^dir;
+   end;
+
+
+
+int .ext still^alive[0:24];
+
+struct   .ext by^default;
+   begin
+   struct bin;
+      begin int vector[0:24]; end;
+   struct rubro;
+      begin int vector[0:24]; end;
+   struct rut;
+      begin int vector[0:24]; end;
+   end;
+
+
+struct   .ext vec^in;
+   begin
+   struct bin;
+      begin int vector[0:24]; end;
+   struct rubro;
+      begin int vector[0:24]; end;
+   struct rut;
+      begin int vector[0:24]; end;
+   end;
+
+
+struct   .ext vec^ex;
+   begin
+   struct bin;
+      begin int vector[0:24]; end;
+   struct rubro;
+      begin int vector[0:24]; end;
+   struct rut;
+      begin int vector[0:24]; end;
+   end;
+
+struct   .ext vec^td;
+   begin
+   struct bin;
+      begin int vector[0:24]; end;
+   struct rubro;
+      begin int vector[0:24]; end;
+   struct rut;
+      begin int vector[0:24]; end;
+   end;
+
+struct .adm^promo;
+   begin
+   int  no^existe^promo;
+   int  existe^emisor;
+   int  num^emisor;
+   int  indice^emisor;
+   int  num^comercio;
+   int  existe^comercio;
+   end;
+
+
+int  seg^activos := -1;
+int  trace^on := 0;
+
+struct  .ext evt^msg^buff(zems^ddl^msg^buffer^def);
+struct  .ext comercio(reg^comercio^def);
+struct  .ext tarjeta(reg^tarjeta^def);
+struct  .ext segmentos^cntl(segmentos)[0:29];
+
+
+end block;

@@ -1,0 +1,153 @@
+!FILE CREATED BY GENFWD - Ver 1.07 03/04/1999
+?section server^cuotas
+proc server^cuotas main;
+external;
+?section inicializa
+proc inicializa( msg );
+int      .msg;
+external;
+?section recupera^params
+proc recupera^params( rucb, passthru, parms, msglen, match ) variable;
+int      .rucb,
+         .passthru( passthru_def ),
+         .parms( ci^param ),
+          msglen,
+          match;
+external;
+?section mensaje^de^sistema
+int proc mensaje^de^sistema( buffer );
+int      .buffer;
+external;
+?section requerimiento
+int proc requerimiento( msg);
+int      .msg;
+external;
+?section log^utility
+proc log^utility( evnt_msg, abnd, param1, param2,
+                          param3, msg ) variable;
+int     evnt_msg,
+        abnd,
+        param1,
+        param2,
+        param3,
+       .msg;
+external;
+?section write^ems
+int proc write^ems( error^cde, error^msg, error^msg^len, critico);
+int  error^cde;
+int .error^msg;
+int  error^msg^len;
+int  critico;
+external;
+?section hora^inicio
+proc hora^inicio;
+external;
+?section hora^fin
+proc hora^fin;
+external;
+?section determina^dia
+proc determina^dia;
+external;
+?section open^log
+int proc open^log;
+external;
+?section cierra^archivos
+proc cierra^archivos(nivel, para);
+int nivel;
+int para;
+external;
+?section registra^evento
+int proc registra^evento;
+external;
+?section get^init^assigns
+proc get^init^assigns;
+external;
+?section lee^receive
+int proc lee^receive(msg);
+int   .msg;
+external;
+?section espera^receive
+int proc espera^receive;
+external;
+?section carga^novedades
+proc carga^novedades;
+external;
+?section abrir^novedades
+int proc abrir^novedades(version);
+int version;
+external;
+?section carga^fichas
+int proc carga^fichas;
+external;
+?section carga^cuotas
+int proc carga^cuotas;
+external;
+?section carga^marcas
+int proc carga^marcas;
+external;
+?section carga^dia
+int proc carga^dia;
+external;
+?section carga^bin
+int proc carga^bin;
+external;
+?section carga^rubro
+int proc carga^rubro;
+external;
+?section carga^rut
+int proc carga^rut;
+external;
+?section carga^comercio
+int proc carga^comercio(id_comercio);
+string  .id_comercio;
+external;
+?section carga^tarjeta
+int proc carga^tarjeta(id_tarjeta);
+string  .id_tarjeta;
+external;
+?section pinta
+int proc pinta( buf, k, x);
+int .ext buf;
+int  k;
+int  x;
+external;
+?section c^rango
+int proc c^rango( buf, k, x);
+int .ext buf;
+int  k;
+int  x;
+external;
+?section valida^bit
+int proc valida^bit( buf, k);
+int .ext buf;
+int  k;
+external;
+?section dealloc_xsegment
+int proc dealloc_xsegment(seg);
+int seg;
+external;
+?section alloc_xsegment
+int  proc alloc_xsegment(seg, largo );
+int     seg;        !segmentos^cntl alterado!
+int(32) largo;      !en bytes!
+external;
+?section crea^espacio
+int proc crea^espacio(len, dir);
+int(32)  len;
+int(32) .dir;
+external;
+?section H1
+int proc H1(key, tipo, hash^id);
+string .ext key;
+int         tipo;
+int        .hash^id;
+external;
+?section H2
+int proc H2(key, tipo, hash^id);
+string .ext key;
+int         tipo;
+int        .hash^id;
+external;
+?section get^init^params
+proc get^init^params;
+external;

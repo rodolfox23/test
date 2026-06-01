@@ -1,0 +1,4743 @@
+?section history
+!#####################################################################!
+!#                                                                   #!
+!#                           SERVER CUOTAS                           #!
+!#                           -------------                           #!
+!#                                                                   #!
+!#    Autor : S. S. R. (Optimisa S.A.)                               #!
+!#    Fecha : Mayo 2010                                              #!
+!#                                                                   #!
+!#                                                                   #!
+!#####################################################################!
+!*********************************************************************!
+!* RPQ      : #2-3                                                   *!
+!* Autor    : S.S.R (Optimisa)                                       *!
+!* Fecha    : 02/07/2010                                             *!
+!* Objetivo : 1.- Incorpora 2 y 3 cuotas a las promociones.          *!
+!*            2.- Incorpora 0's a los acmpor RUT y CODIGO ACTIVIDAD  *!
+!*                Cuando estos poseen espacios.                      *!
+!*                                                                   *!
+!*********************************************************************!
+!* RPQ      : #001                                                   *!
+!* Autor    : S.S.R (Optimisa)                                       *!
+!* Fecha    : 11/01/2011                                             *!
+!* Objetivo : Soluciona problema detectado cuando se carga una sola  *!
+!*            promocion y esta es comercio.                          *!
+!*                                                                   *!
+!*            Se modifica analisis de vector promociones activas.    *!
+!*********************************************************************!
+!* RPQ      : #792                                                   *!
+!* NOMBRE   : Correccion SERVER-CUOTAS barrido promociones candidatas*!
+!* AUTOR    : M.A.E.(Transbank)                                      *!
+!* FECHA    : 05/10/2011                                             *!
+!* OBJETIVO : Soluciona problema detectado al entregar promocion y   *!
+!*            recorrer vector de promociones activas.                *!
+!*                                                                   *!
+!*********************************************************************!
+!* RPQ      : #799                                                   *!
+!* NOMBRE   : Correccion SERVER-CUOTAS mensajes enviados EMS.        *!
+!* AUTOR    : S.S.R.(Optimisa S.A.)                                  *!
+!* FECHA    : 10/04/2012                                             *!
+!* OBJETIVO : Soluciona valor de retorno para condiciones de error   *!
+!*            con el objetivo que genere mensaje correcto al EMS.    *!
+!*                                                                   *!
+!*********************************************************************!
+
+?nolist
+?nocode
+
+name svcuotas;
+
+?check
+?inhibitxx
+
+
+?section globals
+?page "Globals"
+?source =server_cuotas_g
+
+
+?section externals
+?page "Externals"
+?source =server_cuotas_e
+
+
+
+?source =okafm_afmsvtg(
+?    cntl_global )
+?list
+
+
+?section externals_and_forwards
+?page "externals & forwards"
+!  Source in Guardian Externals!
+!!
+?nolist, source =system_extdecs0(
+?    abend
+?    awaitio
+?    close
+?    open
+?    readupdate
+?    debug
+?    shiftstring
+?    fileinfo
+?    file_open_
+?    file_getreceiveinfo_
+?    keyposition
+?    position
+?    writereadx
+?    read
+?    readx
+?    write
+?    emsinit
+?    emsaddtokens
+?    ssgettkn
+?    fnamecollapse
+?    fnameexpand
+?    initializer
+?    mypid
+?    getcrtpid
+?    reply
+?    segment_allocate_
+?    segment_getinfo_
+?    segment_deallocate_
+?    pool_define_
+?    pool_getspace_
+?    stop
+?    delay
+?    time )
+?list
+
+
+?nolist, source =aciutils_utilexts(
+?    ascii^integer,
+?    ascii^double,
+?    integer^ascii,
+?    valid^date^yymmdd,
+?    fixed^ascii,
+?    ascii^fixed,
+?    ascii^fixedx,
+?    time^ascii,
+?    compare^ascii^yymmdd,
+?    remove^blanks)
+?list
+
+
+
+?nolist, source =oklib_oklibte(
+?    lib_tplt_create_like)
+?list
+
+?nolist, source =basrc_bautile(
+?   lconf^err^msgs
+?   lconf^init
+?   lconf^read
+?   )
+?list
+
+
+
+
+
+
+?section server^cuotas
+?page "server^cuotas"
+!#####################################################################!
+!#                                                                   #!
+!#                        server^cuotas MAIN                         #!
+!#                        ------------------                         #!
+!#                                                                   #!
+!#####################################################################!
+proc server^cuotas main;
+begin
+
+int      .msg[ 0:( ( max_msg_lgth_l + 1 )/2 ) - 1 ],
+          continue := FALSE,
+          resp     := 0,
+          stat     := 0;
+
+
+!proceso general de inicializacion!
+call inicializa( msg);
+call log^utility( 7, false );
+continue := lee^receive(msg);
+
+while continue do
+   begin
+   stat := espera^receive;
+   case stat of
+      begin
+      0 ->  !txn!
+         begin
+         if trace^on then
+            call log^utility(6, false, 1, , ,msg);
+
+         if not adm^promo.no^existe^promo then
+            resp := requerimiento( msg)
+         else
+            !este caso se da cuando en los archivos de novedades no!
+            !se informan promociones!
+            resp := 2;
+
+         case resp of
+            begin
+            1 ->
+               begin
+               !se detecta promocion!
+               if trace^on then
+                  call log^utility(6, false, 0, , ,msg);
+               end;
+            2 ->
+               begin
+               !la txn no posee promocion!
+               if trace^on then
+                  call log^utility(6, false, 0, , ,msg);
+               end;
+            otherwise ->
+               begin
+               !requerimiento con error!
+               call log^utility(2, false);
+               if trace^on then
+                  call log^utility(6, false, 0, , ,msg);
+               end;
+            end;
+
+         resp := 0;
+         resp := file_getreceiveinfo_( receive_info.receive^info);
+         if resp then
+            begin
+            call log^utility( rcvinf_err_l, true );
+            end;
+
+         !retengo los valores de comunicacion!
+         receive_info.message^tag := receive_info.receive^info.message^tag;
+         receive_info.open^label := receive_info.receive^info.open^label;
+
+         !comunica respuesta al requerimiento!
+         call reply( msg, cnt_read,, receive_info.message^tag, stat );
+         if <> then
+            begin
+            if < then
+               begin
+               !problemas en respuesta!
+               call log^utility(13, false );
+               end;
+            end
+         else
+            begin
+            !resulto todo ok -> registro del evento!
+            !SOLO SI EXISTE PROMOCION!
+            if msg[0] = 1 then
+               begin
+               call hora^fin;
+               if log.fecha <> conf.fecha for 10 then
+                  begin
+                  !establece fecha para archivo log!
+                  call determina^dia;
+                  fcb.log^file^num^hold := fcb.log^file^num;
+
+                  if not open^log then
+                     begin
+                     if not open^log then
+                        fcb.log^file^num := fcb.log^file^num^hold
+                     else
+                        begin
+                        call close(fcb.log^file^num^hold);
+                        fcb.log^file^num^hold := -1;
+                        end;
+                     end
+                  else
+                     begin
+                     call close(fcb.log^file^num^hold);
+                     fcb.log^file^num^hold := -1;
+                     end;
+                  end;
+
+               if not registra^evento then
+                  begin
+                  call log^utility(15, false);
+                  end;
+
+               if fcb.log^file^num^hold > 0 then
+                  begin
+                  !sin nuevo archivo de log -> imposible logear!
+                  call log^utility(4,true);
+                  call cierra^archivos(3,true);
+                  end;
+               end;
+            end;
+
+         continue := lee^receive(msg);
+
+         end;
+
+      40 ->  !timeout!
+         begin
+         continue := lee^receive(msg);
+         end;
+
+      6 ->
+         begin
+         continue := mensaje^de^sistema( msg );
+         if continue then
+            continue := lee^receive(msg);
+         end;
+
+      otherwise ->
+         begin
+         continue := false;
+         call log^utility( 4, true, stat );
+         end;  !otherwise!
+
+      end;  !case stat of!
+   end;  !while continue do!
+end;  ! server^cuotas  !
+
+
+?section inicializa
+?page "inicializa"
+!#####################################################################!
+!#                                                                   #!
+!#                         inicializa                                #!
+!#                         ----------                                #!
+!#                                                                   #!
+!#####################################################################!
+proc inicializa( msg );
+int      .msg;
+
+begin
+
+int       flgs     := %40000,
+          stat     := 0,
+         .myprocess^id[0:3] := [ 4 * [0]];
+
+string    filename[0:9] := ["$RECEIVE  "];
+
+struct   .passthru( passthru_def );
+
+
+
+
+?page "MAIN CODE"
+
+call determina^dia;
+call hora^inicio;
+
+!inicializa estructura de control de archivos!
+fcb.log^file^num := -1;
+fcb.log^file^num^hold := -1;
+fcb.lconf^file^num := -1;
+
+fcb.ficha^file^num := -1;
+fcb.marca^file^num := -1;
+fcb.cuotas^file^num := -1;
+fcb.bines^file^num := -1;
+fcb.dia^hora^file^num := -1;
+fcb.rut^file^num := -1;
+fcb.rubro^file^num := -1;
+fcb.comercio^file^num := -1;
+fcb.tarjeta^file^num := -1;
+
+log.tipo   ':=' "I";               !evento de inicializacion!
+log.proceso ':=' "      ";
+call getcrtpid( mypid, myprocess^id );
+log.proceso ':=' myprocess^id for 3;
+
+!inicializa algunas variables locales!
+passthru.abort    := false;
+passthru.msg_lgth := 0;
+
+call initializer( , passthru, , recupera^params );
+
+receive_info.open^count := 0;
+receive_info.open^track := FALSE;
+receive_info.file^num   := -1;
+
+stat := file_open_( filename: 8,
+                    receive_info.file^num,
+                    0 !r-w!,
+                    0 !share!,
+                    1 !nowait-depth!,
+                    1 !receive-depth!);
+case stat of
+   begin
+   lib_ok_l -> ;
+
+   otherwise ->
+   call log^utility( 5, true, stat);
+   end;
+
+-- EN ADELANTE LOS MENSAJES SON ENVIADOS AL EMSPERUS
+
+stat := lconf^init(fcb.lconf^file, fcb.lconf^file^num);
+if stat then
+   begin
+   call log^utility(4,true);
+   end;
+
+call get^init^assigns;
+call get^init^params;
+call close(fcb.lconf^file^num);
+
+if not open^log then
+   if not open^log then !intento nuevamente!
+      call log^utility(4,true); !error critico!
+
+call carga^novedades;
+call hora^fin;
+
+if not registra^evento then
+   begin
+   call log^utility(15, false);
+   end;
+end;  !  inicializa  !
+
+
+
+
+?section recupera^params
+?page "recupera^params"
+!#####################################################################!
+!#                                                                   #!
+!#                      recupera^params                              #!
+!#                      ---------------                              #!
+!#                                                                   #!
+!#####################################################################!
+proc recupera^params( rucb, passthru, parms, msglen, match ) variable;
+int      .rucb,
+         .passthru( passthru_def ),
+         .parms( ci^param ),
+          msglen,
+          match;
+
+begin
+string   .ptr^coll := @conf.colector^name '<<' 1;
+
+int     i,
+        asignado,
+        parametro,
+        parametro_ofst,
+        valor,
+        valor_ofst,
+       .default^names[ 0:7 ] := 8 * ["  "];
+
+string  .local[0:1] := ["  "],
+        .temporal[0:35];
+
+define  lconf_d        =  "LCONF"#,
+        coll_d         =  "COLECTOR"#,
+        red_d          =  "RED"#;
+
+
+if ( msglen < $offset( parms.parameters ) ) or
+   ( parms.msgcode <> ci^param^msgcode    ) then
+   begin
+   call log^utility( 6, true );
+   end;
+
+
+if parms.numparams > 0 then
+   begin
+   i              := -1;
+   asignado       := 0;
+   parametro_ofst := 0;
+   valor_ofst     := 0;
+   parametro      := 0;
+   valor          := 0;
+   ptr^coll         ':=' " " & ptr^coll[0] for 23;
+
+
+
+   while ( ( i := i + 1 ) < parms.numparams ) do
+      begin
+      parametro.<8:15> := parms.parameters[ parametro_ofst ];
+      valor_ofst   := parametro_ofst + 1 + parametro;
+      valor.<8:15> := parms.parameters[ valor_ofst ];
+
+      if parms.parameters[parametro_ofst +1] = lconf_d then
+         begin
+         temporal ':=' " " & temporal[0] for 35;
+         temporal ':=' parms.parameters[valor_ofst +1] for valor;
+         if fnameexpand( temporal, fcb.lconf^file, default^names) then
+            asignado := asignado +1;
+         end
+      else
+      if parms.parameters[parametro_ofst +1] = red_d then
+         begin
+         conf.red^text[0] ':=' " " & conf.red^text[0] for 5;
+         conf.red^text[0] ':=' parms.parameters[valor_ofst +1] for valor;
+         conf.red^len := valor;
+         if conf.red^len < 7 then
+            asignado := asignado +1;
+         end
+      else
+      if parms.parameters[parametro_ofst +1] = coll_d then
+         begin
+         if valor > 24 then !trunca el parametro!
+            valor := 24;
+
+         ptr^coll ':=' parms.parameters[valor_ofst +1] for valor;
+         asignado := asignado +1;
+         end;
+      parametro_ofst := valor_ofst + 1 + valor;
+      end; ! of while!
+   end
+else   ! no existen parametros, stop !
+   call log^utility( 6, true );
+
+if asignado <> 3 then  ! faltan parametros !
+   call log^utility( 6, true );
+
+end;  !  recupera^params  !
+
+
+
+
+?section mensaje^de^sistema
+?page "mensaje^de^sistema"
+!#####################################################################!
+!#                                                                   #!
+!#                      mensaje^de^sistema                           #!
+!#                      ------------------                           #!
+!#                                                                   #!
+!#####################################################################!
+int proc mensaje^de^sistema( buffer );
+int      .buffer;
+
+begin
+
+int   err := 0,
+     .resp[0:1];
+
+
+?page "mensaje^de^sistema"
+
+err := file_getreceiveinfo_( receive_info.receive^info );
+if err then
+   begin
+   call log^utility( rcvinf_err_l, true );
+   end;
+
+receive_info.message^tag :=  receive_info.receive^info.message^tag;
+receive_info.open^label  :=  receive_info.receive^info.open^label;
+
+case $abs( buffer[ 0 ] ) - 103 of
+   begin
+   !-103!  begin
+           ! open system msg !
+           buffer[0] := -103;
+
+           if not receive_info.open^track then
+              begin
+              receive_info.open^track := true;
+              receive_info.open^count := receive_info.open^count + 1;
+              buffer[1] := receive_info.open^label + 1;
+
+              call reply(buffer, 4, ,receive_info.message^tag, 0 );
+              if <> then
+                 call log^utility( rcvinf_err_l, true );
+
+              end
+           else
+              begin
+              buffer[1] := 0;
+              call reply(buffer, 4, ,receive_info.message^tag, 10 );
+              if <> then
+                 call log^utility( rcvinf_err_l, true );
+              end;
+           end;
+
+   !-104!  begin
+           ! close system msg !
+           if receive_info.open^track then
+              begin
+              receive_info.open^track := false;
+              receive_info.open^count := receive_info.open^count - 1;
+              end;
+
+           !  Reply to system msg  !
+           call reply(,,, receive_info.message^tag, 0);
+           if <> then
+              begin
+              call log^utility( rcvinf_err_l, true );
+              end;
+
+           if receive_info.open^count <= 0 then
+              begin
+              call log^utility(8, false);
+              call cierra^archivos(3, true);
+              return false;
+              end;
+           end;
+
+   ! ???!  otherwise
+           begin
+           call reply(,,, receive_info.message^tag, 2 );
+           if <> then
+              call log^utility( rcvinf_err_l, true );
+           end;
+   end;
+
+return true;
+
+end; ! mensaje^de^sistema !
+
+
+
+?section requerimiento
+?page "requerimiento"
+!#####################################################################!
+!#                                                                   #!
+!#                        requerimiento                              #!
+!#                        -------------                              #!
+!#                                                                   #!
+!#####################################################################!
+int proc requerimiento( msg);
+int      .msg;
+
+begin
+int     .msg_fm( mensaje^red ) := @msg;
+int .ext vec^temp[0:24],
+    .ext vec^temp1[0:24],
+    .ext vec^temp2[0:24];
+int      quedan^emisor   := FALSE,
+         quedan^comercio := FALSE,
+         i               := 0,
+         j               := 0,
+         k               := 0,
+         l               := 0,
+         m               := 0,
+         n               := 0,
+         p               := 0,
+         hash^id         := 0,
+         encontrado^rut  := FALSE,
+         encontrado      := FALSE,
+         com^leido       := FALSE,
+         tar^leido       := FALSE,
+         candidata       := TRUE,
+         buscar          := TRUE,
+         com^default     := FALSE,
+         tar^default     := FALSE,
+         cero[0:24]      := [ 25 * [0]],
+         error           := 0;
+
+int .ext p^nodo(nodo2),
+    .ext p^nodo^2(nodo3),
+    .ext p^nodo^3(nodo4),
+    .ext p^nodo^t(nodo2^t),
+    .ext ptr^tem(nodo),
+    .ext p^nodo^dia(nodo);
+
+string   fecha[0:13] := [ 14 * [" "]],
+         fecha2[0:5]  := [ 6  * [" "]];
+
+
+
+!**********************************************************************!
+
+?page   "subproc calcula^cuota"
+int subproc calcula^cuota(cuota);
+string .cuota;
+
+begin
+
+!Inicio RPQ:#2-3!
+
+!num.valor^cuota := num.amount / $fix(num.cuotas);
+num.valor^cuota := num.amount * 100F / $fix(num.cuotas);
+
+!Fin RPQ: #2-3!
+
+if not fixed^ascii( cuota, 12, num.valor^cuota ) then
+   return false;
+
+return true;
+end;
+
+
+
+
+
+?page   "subproc transforma"
+int subproc transforma(amt, ncuota);
+string .amt,
+       .ncuota;
+
+begin
+
+num.amount       := 0F;
+num.cuotas       := 0;
+num.valor^cuota  := 0F;
+
+if not ascii^fixed ( amt, 12, num.amount ) then
+   return false;
+
+!Inicio RPQ: #2-3!
+
+num.amount := num.amount / 100F;
+
+!Fin RPQ: #2-3!
+
+if not ascii^integer( ncuota, 2, num.cuotas) then
+   return false;
+
+if not (num.cuotas <> 0 and num.amount > 0F) then
+   return false;
+
+return true;
+end;
+
+
+?page   "subproc valida^monto"
+int subproc valida^monto(amt, amt1, amt2, accion);
+fixed  .amt;
+fixed  .ext amt1,
+       .ext amt2;
+string .ext accion;
+
+begin
+
+if accion = "0" then
+   return TRUE;
+
+if accion = "2" then
+   begin
+   if amt1 <= amt then
+      return TRUE
+   else
+      return FALSE;
+   end;
+
+if accion = "1" then
+   begin
+   if amt1 >= amt then
+      return TRUE
+   else
+      return FALSE;
+   end;
+
+if accion = "3" then
+   begin
+   if amt1 <= amt and amt2 >= amt then
+      return TRUE
+   else
+      return FALSE;
+   end;
+
+if accion = "4" then
+   begin
+   if amt1 = amt then
+      return TRUE
+   else
+      return FALSE;
+   end;
+
+return FALSE;
+end;
+
+
+
+?page   "subproc valida"
+int subproc valida(vector, emisor, comercio);
+int .ext vector,
+    .emisor,
+    .comercio;
+
+begin
+
+int j := 0,
+    k := 0;
+
+
+if emisor or comercio then
+   begin
+   k := $dbl(adm^promo.indice^emisor) '/' 16;
+   j := $dbl(adm^promo.indice^emisor) '\' 16;
+   end
+else
+   return FALSE;
+
+
+if emisor then
+   begin
+   if k <> 0 then
+      begin
+      if vector[0] = cero for k words then
+         begin
+         if c^rango(vector[k], j, 0) then
+            begin
+            emisor := FALSE;
+            end;
+         end;
+      end
+   else
+      begin
+      if c^rango(vector[k], j, 0) then
+         emisor := FALSE;
+      end;
+   end; !de emisor!
+
+if comercio then
+   begin
+   if vector[k + 1] = cero for (24 - k) words then
+      begin
+      if j = 15 then
+         begin
+         comercio := FALSE;
+         return TRUE;
+         end
+      else
+         begin
+! Inicio RPQ: #001!
+         if adm^promo.indice^emisor <> 0  and
+            c^rango( vector[k], j + 1, 1) then
+            begin
+            comercio := FALSE;
+            return TRUE;
+            end
+         else
+            if adm^promo.indice^emisor = 0   and
+               c^rango( vector[k], j, 1)     then
+               begin
+               comercio := FALSE;
+               return TRUE;
+               end
+            else
+               return FALSE;
+! Fin RPQ: #001!
+         end;
+      end
+   else
+      return FALSE;
+   end; !de comercio!
+
+end; !de valida!
+
+
+!**********************************************************************!
+?page   " ********  MAIN CODE  *******  "
+
+call hora^inicio;
+
+msg_fm.tcode    :=  0;
+still^alive    ':=' [ 25 * [ 0 ]];
+vec^temp       ':=' [ 25 * [ 0 ]];
+quedan^emisor   :=  adm^promo.existe^emisor;
+quedan^comercio :=  adm^promo.existe^comercio;
+hash^id         :=  -1;
+encontrado^rut  :=  FALSE;
+encontrado      :=  FALSE;
+tar^leido       :=  FALSE;
+com^leido       :=  FALSE;
+
+
+if not transforma( msg_fm.amt^tran, msg_fm.nro^cuota) then
+   return 3;  !problemas!
+
+if quedan^emisor then
+   begin
+
+!inicio RPQ: #2-3!
+!  if num.cuotas <= 3 or num.cuotas >= 49 then
+
+   if num.cuotas <= 1 or num.cuotas >= 49 then
+
+      return 3;
+!  still^alive ':=' t^cuotas[(num.cuotas - 4)].vector[0] for 25 words;
+   still^alive ':=' t^cuotas[(num.cuotas - 2)].vector[0] for 25 words;
+
+!Fin RPQ: #2-3!
+   error := valida(still^alive, quedan^emisor, quedan^comercio);
+   end;
+
+if quedan^emisor then
+   begin
+   if msg_fm.card^typ = "M " then
+      begin
+      vec^temp[0] ':=' t^marca.master.vector[0] for 25 words;
+      end
+   else
+      begin
+      if msg_fm.card^typ = "V " then
+         begin
+         vec^temp ':=' t^marca.visa.vector[0] for 25 words;
+         end
+      else
+         begin
+         if msg_fm.card^typ = "DC" then
+            begin
+            vec^temp ':=' t^marca.diners.vector[0] for 25 words;
+            end
+         else
+            begin
+            if msg_fm.card^typ = "AX" then
+               begin
+               vec^temp ':=' t^marca.amex.vector[0] for 25 words;
+               end
+            else
+               begin
+               if msg_fm.card^typ = "MA" then
+                  begin
+                  vec^temp ':=' t^marca.magna.vector[0] for 25 words;
+                  end
+               else
+                  return 3;
+               end;
+            end;
+         end;
+      end;
+
+   for i := 0 to 24 do
+      begin
+      still^alive[i] := still^alive[i] LAND vec^temp[i];
+      end;
+   error := valida(still^alive, quedan^emisor, quedan^comercio);
+   end;
+
+
+if quedan^emisor then
+   begin
+   vec^temp ':=' [ 25 * [ 0 ]];
+   if not H1(msg_fm.prefix, 1, hash^id) then
+      return 3;
+
+   if @hash^bin[hash^id].ptr^dir = 0D then
+     begin
+     vec^temp ':=' by^default.bin.vector[0] for 25 words;
+     end
+   else
+     begin
+     @p^nodo := @hash^bin[hash^id].ptr^dir;
+     if msg_fm.prefix = p^nodo.bin for 11 then
+        begin
+        vec^temp ':=' p^nodo.vector[0] for 25 words;
+        end
+     else
+        begin
+        if @p^nodo.ptr^next = 0D then
+           begin
+           vec^temp ':=' by^default.bin.vector[0] for 25 words;
+           end
+        else
+           begin
+           @p^nodo^t := @p^nodo.ptr^next;
+           if not H2(msg_fm.prefix, 1, hash^id) then
+!inicio rpq: #799!
+--            return TRUE;
+              return 3;
+!fin rpq: #799!
+
+           if @p^nodo^t.t^rehash[hash^id].ptr^dir = 0D then
+              begin
+              vec^temp ':=' by^default.bin.vector[0] for 25 words;
+              end
+           else
+              begin
+              @p^nodo := @p^nodo^t.t^rehash[hash^id].ptr^dir;
+              if msg_fm.prefix = p^nodo.bin for 11 then
+                 begin
+                 vec^temp ':=' p^nodo.vector[0] for 25 words;
+                 end
+              else
+                 begin
+                 if @p^nodo.ptr^next = 0D then
+                    begin
+                    vec^temp ':=' by^default.bin.vector[0] for 25 words;
+                    end
+                 else
+                    begin
+                    while @p^nodo.ptr^next <> 0D  and
+                          p^nodo.bin <> msg_fm.prefix for 11 do
+                       begin
+                       @p^nodo := @p^nodo.ptr^next;
+                       end;
+
+                    if p^nodo.bin = msg_fm.prefix for 11 then
+                       begin
+                       vec^temp ':=' p^nodo.vector[0] for 25 words;
+                       end
+                    else
+                       begin
+                       vec^temp ':=' by^default.bin.vector[0] for 25 words;
+                       end;
+                    end;
+                 end;
+              end;
+           end;
+        end;
+     end;
+
+   for i := 0 to 24 do
+      begin
+      still^alive[i] := still^alive[i] LAND vec^temp[i];
+      end;
+   error := valida(still^alive, quedan^emisor, quedan^comercio);
+
+   end;
+
+
+
+
+if quedan^emisor then
+   begin
+   vec^temp ':=' [ 25 * [ 0 ]];
+   !Inicio RPQ: #2-3!
+   if msg_fm.cod^acti = "   " then
+      msg_fm.cod^acti ':=' "000";
+   !Fin RPQ: #2-3!
+   if not H1(msg_fm.cod^acti, 2, hash^id) then
+      return 3;
+
+   if @hash^rubro[hash^id].ptr^dir = 0D then
+     begin
+     vec^temp ':=' by^default.rubro.vector[0] for 25 words;
+     end
+   else
+     begin
+     @p^nodo^2 := @hash^rubro[hash^id].ptr^dir;
+     if msg_fm.cod^acti = p^nodo^2.rubro for 3 then
+        begin
+        vec^temp ':=' p^nodo^2.vector[0] for 25 words;
+        end
+     else
+        begin
+        if @p^nodo^2.ptr^next = 0D then
+           begin
+           vec^temp ':=' by^default.rubro.vector[0] for 25 words;
+           end
+        else
+           begin
+           @p^nodo^t := @p^nodo^2.ptr^next;
+           if not H2(msg_fm.cod^acti, 2, hash^id) then
+!inicio rpq: #799!
+--            return TRUE;
+              return 3;
+!fin rpq: #799!
+
+           if @p^nodo^t.t^rehash[hash^id].ptr^dir = 0D then
+              begin
+              vec^temp ':=' by^default.rubro.vector[0] for 25 words;
+              end
+           else
+              begin
+              @p^nodo^2 := @p^nodo^t.t^rehash[hash^id].ptr^dir;
+              if msg_fm.cod^acti = p^nodo^2.rubro for 3 then
+                 begin
+                 vec^temp ':=' p^nodo^2.vector[0] for 25 words;
+                 end
+              else
+                 begin
+                 if @p^nodo^2.ptr^next = 0D then
+                    begin
+                    vec^temp ':=' by^default.rubro.vector[0] for 25 words;
+                    end
+                 else
+                    begin
+                    while @p^nodo^2.ptr^next <> 0D  and
+                          p^nodo^2.rubro <> msg_fm.cod^acti for 3 do
+                       begin
+                       @p^nodo^2 := @p^nodo^2.ptr^next;
+                       end;
+
+                    if p^nodo^2.rubro = msg_fm.cod^acti for 3 then
+                       begin
+                       vec^temp ':=' p^nodo^2.vector[0] for 25 words;
+                       end
+                    else
+                       begin
+                       vec^temp ':=' by^default.rubro.vector[0] for 25 words;
+                       end;
+                    end;
+                 end;
+              end;
+           end;
+        end;
+     end;
+
+   for i := 0 to 24 do
+      begin
+      still^alive[i] := still^alive[i] LAND vec^temp[i];
+      end;
+   error := valida(still^alive, quedan^emisor, quedan^comercio);
+
+   end;!de emisor!
+
+
+quedan^comercio :=  adm^promo.existe^comercio;
+if quedan^emisor or quedan^comercio then
+   begin
+   k := $dbl(adm^promo.num^emisor) '/' 16;
+   j := $dbl(adm^promo.num^emisor) '\' 16;
+
+   while j <= 15 do
+      begin
+      if not pinta(still^alive[k], j, 1) then
+!inicio rpq: #799!
+--       return TRUE;
+         return 3;
+!fin rpq: #799!
+      j := j + 1;
+      end;
+
+   for j := (k + 1) to 24 do
+      begin
+      still^alive[j] ':=' [%b1111111111111111];
+      end;
+
+   vec^temp ':=' [ 25 * [ 0 ]];
+   !Inicio RPQ: #2-3!
+   if msg_fm.reta^rut = "          " then
+      msg_fm.reta^rut ':=' "0000000000";
+   !Fin RPQ: #2-3!
+   if not H1(msg_fm.reta^rut, 3, hash^id) then
+      return 3;
+
+   if @hash^rut[hash^id].ptr^dir = 0D then
+     begin
+     vec^temp ':=' by^default.rut.vector[0] for 25 words;
+     end
+   else
+     begin
+     @p^nodo^3 := @hash^rut[hash^id].ptr^dir;
+     if msg_fm.reta^rut = p^nodo^3.rut for 9 then
+        begin
+        vec^temp ':=' p^nodo^3.vector[0] for 25 words;
+        encontrado^rut := TRUE;
+        end
+     else
+        begin
+        if @p^nodo^3.ptr^next = 0D then
+           begin
+           vec^temp ':=' by^default.rut.vector[0] for 25 words;
+           end
+        else
+           begin
+           @p^nodo^t := @p^nodo^3.ptr^next;
+           if not H2(msg_fm.reta^rut, 3, hash^id) then
+!inicio rpq: #799!
+--            return TRUE;
+              return 3;
+!fin rpq: #799!
+
+           if @p^nodo^t.t^rehash[hash^id].ptr^dir = 0D then
+              begin
+              vec^temp ':=' by^default.rut.vector[0] for 25 words;
+              end
+           else
+              begin
+              @p^nodo^3 := @p^nodo^t.t^rehash[hash^id].ptr^dir;
+              if msg_fm.reta^rut = p^nodo^3.rut for 9 then
+                 begin
+                 vec^temp ':=' p^nodo^3.vector[0] for 25 words;
+                 encontrado^rut := TRUE;
+                 end
+              else
+                 begin
+                 if @p^nodo^3.ptr^next = 0D then
+                    begin
+                    vec^temp ':=' by^default.rut.vector[0] for 25 words;
+                    end
+                 else
+                    begin
+                    while @p^nodo^3.ptr^next <> 0D  and
+                          p^nodo^3.rut <> msg_fm.reta^rut for 9 do
+                       begin
+                       @p^nodo^3 := @p^nodo^3.ptr^next;
+                       end;
+
+                    if p^nodo^3.rut = msg_fm.reta^rut for 9 then
+                       begin
+                       vec^temp ':=' p^nodo^3.vector[0] for 25 words;
+                       encontrado^rut := TRUE;
+                       end
+                    else
+                       begin
+                       vec^temp ':=' by^default.rut.vector[0] for 25 words;
+                       end;
+                    end;
+                 end;
+              end;
+           end;
+        end;
+     end;
+
+   if encontrado^rut then
+      begin
+      vec^temp1[0] ':=' [ 25 * [0]];
+      vec^temp2[0] ':=' [ 25 * [0]];
+      if p^nodo^3.cant^promo <> 0 then
+         begin
+         for i := 0 to (p^nodo^3.cant^promo - 1) do
+            begin
+            if p^nodo^3.promos[i].c^min <= num.cuotas and
+               p^nodo^3.promos[i].c^max >= num.cuotas then
+               begin
+               k := $dbl(p^nodo^3.promos[i].id^interno - 1) '/' 16;
+               j := $dbl(p^nodo^3.promos[i].id^interno - 1) '\' 16;
+               if not pinta(vec^temp[k], j, 1) then
+                  return 3;
+               end;
+            end;
+         end;
+
+      for i := 0 to 24 do
+         begin
+         vec^temp1[i]   := vec^temp[i]    LAND vec^in.rut.vector[i];
+         vec^temp2[i]   := vec^temp[i]    XOR  vec^ex.rut.vector[i];
+         vec^temp2[i]   := vec^temp2[i]   LAND vec^ex.rut.vector[i];
+         vec^temp[i]    := vec^temp1[i]   XOR  vec^temp2[i];
+         vec^temp[i]    := vec^temp[i]    XOR  vec^td.rut.vector[i];
+         still^alive[i] := still^alive[i] LAND vec^temp[i];
+         end;
+      end
+   else
+      begin
+      for i := 0 to 24 do
+         begin
+         still^alive[i] := still^alive[i] LAND vec^temp[i];
+         end;
+      end;
+
+   error := valida(still^alive, quedan^emisor, quedan^comercio);
+
+   end
+else
+   return 2;
+
+
+
+if quedan^emisor or quedan^comercio then
+   begin
+   k := 0;
+   j := 0;
+   i := 0;
+   p := (adm^promo.num^emisor + adm^promo.num^comercio);
+   encontrado := FALSE;
+   while k < 25 and not encontrado and i < p do
+      begin
+      while j < 16 and not encontrado and i < p do
+         begin
+
+! INICIO CORRECCION : #004
+--       i := ((k + 1) * (j + 1)) - 1;
+         i :=   (k * 16) + j;
+! FIN CORRECCION : #004
+         if valida^bit( still^alive[k], j) then
+            begin
+            candidata := TRUE;
+            if valida^monto(num.amount,
+                            t^fichas[i].monto1,
+                            t^fichas[i].monto2,
+                            t^fichas[i].monto) then
+               begin
+               call time^ascii(fecha, , 14);
+               fecha2 ':=' t^fichas[i].fecha^vencimiento[0] for 6;
+               if compare^ascii^yymmdd(fecha[0],
+                                       3,                 !<=!
+                                       fecha2) then
+                  begin
+                  if i <= adm^promo.indice^emisor and
+                     t^fichas[i].dia^hora = "1"   then
+                     begin
+                     if @t^dia^hora[i].ptr^dir = 0D then
+                        begin
+                        candidata := FALSE;
+                        end
+                     else
+                        begin
+                        buscar := TRUE;
+                        @p^nodo^dia := @t^dia^hora[i].ptr^dir;
+                        do
+                           begin
+                           if msg_fm.dia >= p^nodo^dia.inicio          and
+                              msg_fm.dia <= p^nodo^dia.fin             and
+                              msg_fm.hora >= p^nodo^dia.h^inicio for 4 and
+                              msg_fm.hora <= p^nodo^dia.h^fin    for 4 then
+                              begin
+                              buscar := FALSE;
+                              end;
+                           @ptr^tem    := @p^nodo^dia.ptr^next;
+                           @p^nodo^dia := @ptr^tem;
+                           end
+                        until not buscar or @p^nodo^dia = 0D;
+
+                        if buscar then
+                           candidata := FALSE;
+                        end;!de tabla no vacia!
+                     end; !de i <= !
+
+                  if candidata                    and
+                     i <= adm^promo.indice^emisor and
+                     (t^fichas[i].tarjetas = "1"  or
+                      t^fichas[i].tarjetas = "2") then
+                     begin
+                     if not tar^leido then
+                        begin
+                        tar^leido := TRUE;
+                        tar^default := FALSE;
+                        error := carga^tarjeta(msg_fm.pan);
+                        if error <> 0 then
+                           begin
+                           if error = 2 then
+                              return 3
+                           else
+                              begin
+                              tar^default := TRUE;
+                              end;
+                           end
+                        else
+                           begin
+                           vec^temp[0] ':=' [ 25 * [0]];
+                           if tarjeta.cant^promo <> 0 then
+                              begin
+                              for l := 0 to (tarjeta.cant^promo - 1) do
+                                 begin
+                        m := $dbl(tarjeta.promo[l].id^interno - 1) '/' 16;
+                        n := $dbl(tarjeta.promo[l].id^interno - 1) '\' 16;
+                                 if not pinta(vec^temp[m], n, 1) then
+                                    return 3;
+                                 end;
+                              end;
+                           end;
+                        end;
+
+                     if tar^default then
+                        begin
+                        if t^fichas[i].tarjetas = "1" then
+                           candidata := FALSE;
+                        end
+                     else
+                        begin
+                        if (not valida^bit( vec^temp[k], j) and
+                            t^fichas[i].tarjetas = "1") or
+                           (valida^bit( vec^temp[k], j) and
+                            t^fichas[i].tarjetas = "2") then
+                           candidata := FALSE;
+                        end;
+                     end; !de candidata!
+
+
+                  if candidata                    and
+                     (t^fichas[i].comercio = "1"  or
+                      t^fichas[i].comercio = "2") then
+                     begin
+                     if not com^leido then
+                        begin
+                        com^leido := TRUE;
+                        com^default := FALSE;
+                        error := carga^comercio(msg_fm.reta^id);
+                        if error <> 0 then
+                           begin
+                           if error = 2 then
+                              return 3
+                           else
+                              begin
+                              com^default := TRUE;
+                              end;
+                           end
+                        else
+                           begin
+                           vec^temp1[0] ':=' [ 25 * [0]];
+                           vec^temp2[0] ':=' [ 25 * [0]];
+                           if comercio.cant^promo <> 0 then
+                              begin
+                              for l := 0 to (comercio.cant^promo - 1) do
+                                 begin
+                          m := $dbl(comercio.promo[l].id^interno - 1) '/' 16;
+                          n := $dbl(comercio.promo[l].id^interno - 1) '\' 16;
+                                if (comercio.promo[l].id^interno
+                                           <= adm^promo.num^emisor) or
+                                   (comercio.promo[l].cuota^minimo
+                                                     <= num.cuotas  and
+                                    comercio.promo[l].cuota^maximo
+                                                     >= num.cuotas) then
+                                    begin
+                                    if not pinta(vec^temp1[m], n, 1) then
+                                       return 3;
+                                    end;
+                                 if not pinta(vec^temp2[m], n, 1) then
+                                    return 3;
+                                 end;
+                              end;
+                           end;
+                        end;
+
+                     if com^default then
+                        begin
+                        if t^fichas[i].comercio = "1" then
+                           candidata := FALSE;
+                        end
+                     else
+                        begin
+                        if (not valida^bit( vec^temp1[k], j) and
+                            t^fichas[i].comercio = "1"      ) or
+                           (valida^bit( vec^temp2[k], j) and
+                            t^fichas[i].comercio = "2") then
+                           candidata := FALSE;
+                        end;
+                     end; !de candidata!
+
+                  if candidata then
+                     encontrado := TRUE;
+
+
+                  end;!de fecha vencimiento!
+               end; !de monto!
+            end; !de if still^alive!
+         j := j + 1;
+         end; !de while!
+      j := 0;
+      k := k + 1;
+      end; !de while!
+
+   end
+else
+   return 2;
+
+
+if not encontrado then
+   return 2
+else
+   begin
+   msg_fm.respuesta.id^promo ':=' t^fichas[i].id^promo for 10;
+   if not calcula^cuota( msg_fm.respuesta.valor^cuota) then
+     return 3;  !problemas!
+   if t^fichas[i].tipo^promo = "PD" then
+      begin
+      msg_fm.respuesta.tipo^promo  ':=' "D";
+      msg_fm.respuesta.tipo^cuota  ':=' "4";
+      msg_fm.respuesta.cuota^trans ':=' "4";
+      msg_fm.respuesta.glosa       ':=' "COMERCIO EN PROMOCION";
+      end
+   else
+      begin
+      msg_fm.respuesta.tipo^cuota  ':=' "1";
+      msg_fm.respuesta.cuota^trans ':='
+                              t^cuotas[num.cuotas - 2].transformada[i] for 1;
+
+      msg_fm.respuesta.tipo^promo  ':=' t^fichas[i].tipo^promo.byte[1] for 1;
+      msg_fm.respuesta.glosa       ':=' "EMISOR EN PROMOCION  ";
+      end;
+   end;
+
+!en este punto ya tengo una promoción válida, por tanto!
+!es necesario completar estructura para logear!
+msg_fm.tcode := 1;
+
+!informacion para logear la promo asignada!
+log.tipo     ':=' "P";
+log.seq^num  ':=' msg_fm.seq^num for 12;
+log.id^promo ':=' msg_fm.respuesta.id^promo for 10;
+
+return 1; !detecta promocion sin problemas!
+end;  !  requerimiento !
+
+
+
+?section log^utility
+?page "log^utility"
+!#####################################################################!
+!#                                                                   #!
+!#                    log event                                      #!
+!#                                                                   #!
+!#####################################################################!
+proc log^utility( evnt_msg, abnd, param1, param2,
+                          param3, msg ) variable;
+int     evnt_msg,
+        abnd,
+        param1,
+        param2,
+        param3,
+       .msg;
+begin
+
+int  error   := 0,
+     len^ems := 0,
+     alarm   := 0; ! por defecto sin enfasis !
+
+int .msg_fm( mensaje^red );
+
+
+if not $param(evnt_msg) then
+   evnt_msg := 0;
+
+if not $param(abnd) then
+   abnd := false;
+
+ptr^text ':=' " " & ptr^text[0] for 399;
+case evnt_msg of
+   begin
+   1 ->
+      begin
+      ptr^text ':=' "Error en la respuesta enviada.";
+      len^ems   :=  30;
+      if $param(param1) then
+         begin
+         ptr^text[31] ':=' "Error numero ";
+         error   := integer^ascii(ptr^text[44], 3, param1);
+         len^ems :=  48;
+         end;
+      alarm := 1;
+      error := write^ems( evnt_msg, pl, len^ems, alarm);
+      end;
+
+   2 ->
+      begin
+      ptr^text ':=' "Mensaje enviado esta incompleto.";
+      len^ems   :=  32;
+      if $param(param1) then
+         begin
+         ptr^text[33] ':=' "Error numero ";
+         error   := integer^ascii(ptr^text[46], 3, param1);
+         len^ems :=  50;
+         end;
+      alarm := 1;
+      error := write^ems( evnt_msg, pl, len^ems, alarm);
+      end;
+
+   3 ->
+      begin
+      ptr^text ':=' "Problema detectado en los archivos de novedades. " &
+               "     Se intentara cargar informacion de promociones " &
+               " desde archivos de respaldo.";
+      len^ems   :=  130;
+      alarm := 1;
+      error := write^ems( evnt_msg, pl, len^ems, alarm);
+      end;
+
+   4 ->
+      begin
+      ptr^text ':=' "Error de sistema !!!!";
+      len^ems   :=  22;
+      if $param(param1) then
+         begin
+         ptr^text[22] ':=' "Error numero ";
+         error   := integer^ascii(ptr^text[35], 3, param1);
+         len^ems :=  38;
+         end;
+      alarm := 1;
+      error := write^ems( evnt_msg, pl, len^ems, alarm);
+      end;
+
+   5 ->
+      begin
+      ptr^text ':=' "Atencion. Cantidad de promociones supera el 80%";
+      len^ems   :=  50;
+      alarm := 1;
+      error := write^ems( evnt_msg, pl, len^ems, alarm);
+      end;
+
+   6 ->
+      begin
+      if $param(param1) then
+         begin
+         if param1 = 1 then
+            ptr^text ':=' "Men. In: "
+         else
+            if param1 = 0 then
+               ptr^text ':=' "Me. Out: "
+            else
+               ptr^text ':=' "Mensaje: ";
+         end
+      else
+         ptr^text ':=' "Mensaje: ";
+
+      len^ems   :=  155;
+      alarm := 1;
+      if $param(msg) then
+          begin
+          @msg_fm := @msg;
+          error   := integer^ascii(ptr^text[9], 2, msg_fm.tcode);
+          ptr^text[11] ':=' msg_fm.amt^tran[0] for ($len(msg_fm) -2 );
+         end;
+      error := write^ems( evnt_msg, pl, len^ems, alarm);
+      end;
+
+   7 ->
+      begin
+      ptr^text ':=' "SERVER-CUOTAS inicializado exitosamente.";
+      len^ems   :=  42;
+      error := write^ems( evnt_msg, pl, len^ems, alarm);
+      end;
+
+   8 ->
+      begin
+      ptr^text ':=' "SERVER-CUOTAS detenido!!!.";
+      len^ems   :=  26;
+      alarm     :=  1;
+      error := write^ems( evnt_msg, pl, len^ems, alarm);
+      end;
+
+  10 ->
+      begin
+      ptr^text ':=' "Entrada no valida para tabla de servers.";
+      len^ems   :=  40;
+      alarm := 1;
+      error := write^ems( evnt_msg, pl, len^ems, alarm);
+      end;
+
+
+  11 ->
+      begin
+      ptr^text ':=' "Abort procesado !!!!";
+      len^ems   :=  20;
+      alarm := 1;
+      error := write^ems( evnt_msg, pl, len^ems, alarm);
+      end;
+
+  12 ->
+      begin
+      ptr^text ':=' "Promocion aplicada.";
+      len^ems   :=  20;
+      if $param(msg) then
+         begin
+         @msg_fm := @msg;
+         ptr^text[21] ':=' "Tarjeta: " & msg_fm.pan for 19;
+         ptr^text[52] ':=' "ID Promocion: " & msg_fm.respuesta.id^promo
+                                              for 10;
+         ptr^text[80] ':=' "Valor cuota: " & msg_fm.respuesta.valor^cuota
+                                              for 12;
+         len^ems :=  110;
+         end;
+      alarm := 1;
+      error := write^ems( evnt_msg, pl, len^ems, alarm);
+      end;
+
+
+  13 ->
+      begin
+      ptr^text ':=' "Problemas al responder el mensaje.";
+      len^ems   :=  35;
+      alarm := 1;
+      error := write^ems( evnt_msg, pl, len^ems, alarm);
+      end;
+
+
+  14 ->
+      begin
+      ptr^text ':=' "Transaccion sin promocion.";
+      len^ems   :=  26;
+      if $param(msg) then
+         begin
+         @msg_fm := @msg;
+         ptr^text[27] ':=' "Tarjeta: " & msg_fm.pan for 19;
+         len^ems :=  55;
+         end;
+      alarm := 1;
+      error := write^ems( evnt_msg, pl, len^ems, alarm);
+      end;
+
+
+  15 ->
+      begin
+      ptr^text ':=' "Promocion no registrada en archivo de log: "
+                      & log.tipo for 62;
+      len^ems   :=  110;
+      alarm := 1;
+      error := write^ems( evnt_msg, pl, len^ems, alarm);
+      end;
+
+  17 ->
+      begin
+      ptr^text ':=' "Imposible recuperar informacion desde archivos de" &
+                    " respaldo. El Server-Cuotas se ha quedado sin input.";
+      len^ems   :=  102;
+      alarm := 1;
+      error := write^ems( evnt_msg, pl, len^ems, alarm);
+      end;
+
+
+   otherwise ->
+      begin
+      ptr^text ':=' "Numero de mensaje desconocido.";
+      len^ems   :=  16;
+      error := write^ems( evnt_msg, pl, len^ems, alarm);
+      end;
+   end;
+
+if $param( abnd ) and abnd then
+   begin
+   ptr^text ':=' " " & ptr^text[0] for 399;
+   ptr^text ':=' "El server-cuotas se detendra!!!! ";
+   len^ems   :=  34;
+   alarm := 1;
+   error := write^ems( evnt_msg, pl, len^ems, alarm);
+
+   !cierro todos los archivos y stop!
+   call cierra^archivos(3, true);
+   end;
+
+end;  !  proc log^utility  !
+
+
+
+?section write^ems
+?page "***** write^ems *****"
+!************************************************************************!
+!*  PROCEDIMIENTO QUE ENVIA MENSAJES AL COLECTOR                        *!
+!*                                                                      *!
+!*                                                                      *!
+!*  PARAMETROS:                                                         *!
+!*                                                                      *!
+!*    error^cde    : Nº del error.                                      *!
+!*    error^msg    : Mensaje en un buffer tipo INT.                     *!
+!*    error^msg^len: Largo del mensaje en bytes.                        *!
+!*    critico      : Valor 0    -> normal.                              *!
+!*                   Valor 1    -> critico.                             *!
+!*                                                                      *!
+!*                                                                      *!
+!*                                                                      *!
+!*  RESPUESTAS:                                                         *!
+!*    0 -> OK.                                                          *!
+!*    1 -> LARGO DE BUFFER.                                             *!
+!*    2 -> VALOR INVALIDO PARA PARAMETRO CRITICO.                       *!
+!*    3 -> ERROR AL ABRIR COLECTOR.                                     *!
+!*    4 -> ERROR AL INICIALIZAR BUFFER.                                 *!
+!*    5 -> ERROR AL INCORPORAR TOKENS.                                  *!
+!*                                                                      *!
+!*                                                                      *!
+!************************************************************************!
+
+int proc write^ems( error^cde, error^msg, error^msg^len, critico);
+
+int  error^cde;
+int .error^msg;
+int  error^msg^len;
+int  critico;
+begin
+
+struct .ext ems^ssid(zems^val^ssid^def);
+struct .ext our^ssid(zspi^val^ssid^def);
+
+int  colector := 0,
+     error := 0,
+     value,
+     value2,
+     event^size := 0;
+
+string .ext asunto[0:11];
+
+
+subproc inicializar;
+   begin
+   value  := 0;
+   value2 := 0;
+   asunto ':=' "SERVER CUOTA";
+   evt^msg^buff.z^msgcode := 0;
+   evt^msg^buff.z^buflen  := 0;
+   evt^msg^buff.z^occurs  := 0;
+   end;
+
+if error^msg^len > 200 then
+   return 1;
+
+if critico <> 1 and critico <> 0 then
+   return 2;
+
+
+call inicializar;
+
+call open(conf.colector^name, colector,0,1); !waited, r-w, shared!
+if colector > 0 then
+   begin
+   ems^ssid ':=' [zspi^val^tandem,      !z^owner!
+                  zspi^ssn^zems,        !z^number!
+                  zems^val^version];    !z^version!
+
+   our^ssid ':=' [ zspi^val^tandem,     !mi ssid!
+                            1,          !mi numero!
+                            1];         !mi version!
+
+   if not ( error := emsinit(  evt^msg^buff, !buffer!
+                        zems^val^evt^buflen, !buffer len en bytes!
+                                   our^ssid, !quien genera el msg!
+                                  error^cde, !numero del evento, int!
+                                  33488897D, !int(32) sub-token-id!
+                                     asunto,
+                                         12,
+                                           ,
+                                            )) then
+
+      begin
+      if critico = 1 then
+         value := zspi^val^true
+      else
+         value := zspi^val^false;
+
+      evt^msg^buff.z^filler ':=' ["SCUOTAS "];
+
+      if not ( error := emsaddtokens(  evt^msg^buff,  !buffer!
+                                           ems^ssid,  !ssid!
+                                  zems^tkn^emphasis,  !tknid!
+                                              value,  !emphasis!
+                                                   ,
+                             zems^tkn^console^print,  !tknid!
+                                             value2,
+                                                   ,
+                                      zems^tkn^text,  !tknid!
+                                          error^msg,  !mensaje!
+                                      error^msg^len,  !len en bytes!
+                                 zems^tkn^proc^desc,  !destino!
+                                           conf.red,
+                                       conf.red^len
+                                                   )) then
+
+          begin
+
+          call ssgettkn(evt^msg^buff, zspi^tkn^usedlen, event^size);
+          call writereadX(colector,
+                         evt^msg^buff,
+                         event^size,
+                         0);
+
+          end
+      else
+          begin
+          close(colector);
+          return 5;
+          end;
+      end
+    else
+      begin
+      close(colector);
+      return 4;
+      end;
+   close(colector);
+   end
+else
+   return 3;
+
+return 0;
+end; ! Of Proc write^ems
+
+
+
+
+?section hora^inicio
+!*********************************************************!
+!*         REGISTRA LA HORA DE INICIO DE UN EVENTO       *!
+!*********************************************************!
+proc hora^inicio;
+begin
+int .fecha^array[0:6] := [ 7 * [0]];
+
+log.seq^num ':=' "            ";
+log.id^promo ':=' "          ";
+log.fecha  ':=' "  /  /    ";      !dd/mm/yyyy!
+log.inicio ':=' "  :  :  :  "; !hh:mm:ss:cccc!
+log.fin    ':=' "  :  :  :  "; !hh:mm:ss:cccc!
+
+time (fecha^array);
+call integer^ascii( log.fecha[6],   4, fecha^array[0] );
+call integer^ascii( log.fecha[3],   2, fecha^array[1] );
+call integer^ascii( log.fecha[0],   2, fecha^array[2] );
+call integer^ascii( log.inicio[0],  2, fecha^array[3] );
+call integer^ascii( log.inicio[3],  2, fecha^array[4] );
+call integer^ascii( log.inicio[6],  2, fecha^array[5] );
+call integer^ascii( log.inicio[9],  2, fecha^array[6] );
+
+end;
+
+
+
+
+
+?section hora^fin
+!*********************************************************!
+!*        REGISTRA LA HORA DE TERMINO DE UN EVENTO       *!
+!*********************************************************!
+
+proc hora^fin;
+begin
+int .fecha^array[0:6] := [ 7 * [0]];
+
+fecha^array ':=' [ 7 * [0]];
+call time(fecha^array);
+call integer^ascii( log.fin[0],  2, fecha^array[3] );
+call integer^ascii( log.fin[3],  2, fecha^array[4] );
+call integer^ascii( log.fin[6],  2, fecha^array[5] );
+call integer^ascii( log.fin[9],  2, fecha^array[6] );
+
+end;
+
+
+
+
+?section determina^dia
+!*********************************************************!
+!*        DETERMINA EL DÍA ACTUAL                        *!
+!*********************************************************!
+proc determina^dia;
+begin
+
+int .temp[0:6] := [ 7 * [0]];
+
+conf.fecha ':=' "  /  /    ";
+time (temp);
+call integer^ascii( conf.fecha[6], 4, temp[0] );
+call integer^ascii( conf.fecha[3], 2, temp[1] );
+call integer^ascii( conf.fecha[0], 2, temp[2] );
+end;
+
+
+
+
+?section open^log
+!*********************************************************!
+!*            APERTURA DEL ARCHIVO DE LOG                *!
+!*********************************************************!
+int proc open^log;
+begin
+int    .default^names[ 0:7 ] := 8 * ["  "],
+        creado := 0,
+        stat  := 0,
+        error := 0;
+string .ptr := @fcb.log^file[8] '<<' 1;
+
+struct .stat_detl( lib_stat_detl_def );
+
+
+ptr ':=' "LP" & conf.fecha[8] for 2 & conf.fecha[3] for 2
+              & conf.fecha[0] for 2;
+
+call open(fcb.log^file, fcb.log^file^num, 0, 1);
+if <> then
+   begin
+   if < then
+      begin
+      call fileinfo(fcb.log^file^num, error);
+      if error = 11 then
+         begin
+         stat := lib_tplt_create_like( stat_detl,
+                                       fcb.template^file,
+                                       fcb.log^file,
+                                       !altfile!,
+                                       false, !temporal!
+                                       creado);
+         if stat <> 0 then
+            return false
+         else
+            if not creado then    !archivo existe, no existe template!
+               return false;
+
+         call open(fcb.log^file, fcb.log^file^num, 0, 1);
+         if <> then
+            return false;
+         end
+      else
+         return false;
+
+      end
+   else
+      return false;
+
+   end;
+
+return true;
+end;
+
+
+
+?section cierra^archivos
+!************************************************************!
+!*               ESTA CLARITO LO QUE HACE                   *!
+!*                                                          *!
+!* nivel = 0 -> cierra novedades.                           *!
+!* nivel = 1 -> cierra novedades - comercio y tarjetas.     *!
+!* nivel = 2 -> cierra log y receive.                       *!
+!* nivel = 3 -> cierra todo.                                *!
+!*                                                          *!
+!* para = true -> stop.                                     *!
+!*        false -> non stop.                                *!
+!************************************************************!
+proc cierra^archivos(nivel, para);
+int nivel;
+int para;
+
+begin
+
+int cont := 0,
+    error := 0;
+
+!cerrar ficha!
+if fcb.ficha^file^num > -1 and (nivel = 0 or nivel = 1 or nivel = 3) then
+   begin
+   close(fcb.ficha^file^num);
+   fcb.ficha^file^num := -1;
+   end;
+
+!cerrar marca!
+if fcb.marca^file^num > -1 and (nivel = 0 or nivel = 1 or nivel = 3) then
+   begin
+   close(fcb.marca^file^num);
+   fcb.marca^file^num := -1;
+   end;
+
+!cerrar cuotas!
+if fcb.cuotas^file^num > -1 and (nivel = 0 or nivel = 1 or nivel = 3) then
+   begin
+   close(fcb.cuotas^file^num);
+   fcb.cuotas^file^num := -1;
+   end;
+
+!cerrar bines!
+if fcb.bines^file^num > -1 and (nivel = 0 or nivel = 1 or nivel = 3) then
+   begin
+   close(fcb.bines^file^num);
+   fcb.bines^file^num := -1;
+   end;
+
+!cerrar dia-hora!
+if fcb.dia^hora^file^num > -1 and (nivel = 0 or nivel = 1 or nivel = 3) then
+   begin
+   close(fcb.dia^hora^file^num);
+   fcb.dia^hora^file^num := -1;
+   end;
+
+!cerrar rut!
+if fcb.rut^file^num > -1 and (nivel = 0 or nivel = 1 or nivel = 3) then
+   begin
+   close(fcb.rut^file^num);
+   fcb.rut^file^num := -1;
+   end;
+
+!cerrar rubro!
+if fcb.rubro^file^num > -1 and (nivel = 0 or nivel = 1 or nivel = 3) then
+   begin
+   close(fcb.rubro^file^num);
+   fcb.rubro^file^num := -1;
+   end;
+
+!cerrar comercio!
+if fcb.comercio^file^num > -1 and (nivel = 0 or nivel = 3) then
+   begin
+   close(fcb.comercio^file^num);
+   fcb.comercio^file^num := -1;
+   end;
+
+!cerrar tarjeta!
+if fcb.tarjeta^file^num > -1 and (nivel = 0 or nivel = 3) then
+   begin
+   close(fcb.tarjeta^file^num);
+   fcb.tarjeta^file^num := -1;
+   end;
+
+
+!cerrar archivo de log!
+if fcb.log^file^num > -1 and (nivel = 2 or nivel = 3) then
+   begin
+   close(fcb.log^file^num);
+   fcb.log^file^num := -1;
+   end;
+
+!cierra $RECEIVE!
+if receive_info.file^num > -1 and (nivel = 2 or nivel = 3) then
+   begin
+   close(receive_info.file^num);
+   receive_info.file^num := -1;
+   end;
+
+if para then
+   begin
+
+   for cont := 0 to 29 do
+      begin
+      if @segmentos^cntl[cont].ptr <> 0D then
+         error := dealloc_xsegment(cont);
+      end;
+
+   call stop;
+   end;
+end;
+
+
+
+
+?section registra^evento
+!*******************************************************!
+!*     PROCEDIMIENTO ENCARGADO DE ESCRIBIR EL LOG      *!
+!*******************************************************!
+int proc registra^evento;
+begin
+
+int error := 0;
+
+call write(fcb.log^file^num, log, 62);
+if <> then
+   begin
+   call fileinfo(fcb.log^file^num, error);
+   if error = 201 then
+      begin
+      call write(fcb.log^file^num, log, 62);
+      if <> then
+         begin
+         call log^utility(4,false, error);
+         return false;
+         end
+      else
+         return true;
+
+      end
+   else
+      begin
+      call log^utility(4,false, error);
+      return false;
+      end;
+   end;
+
+return true;
+end;
+
+
+?section get^init^assigns
+!*******************************************************!
+!*           RECUPERA ASSIGNS DESDE LCONF              *!
+!*******************************************************!
+proc get^init^assigns;
+begin
+
+struct         .lconf( lconf^def );
+
+int             buf^len,
+                stat := 0,
+               .file^name[ 0:11 ],
+               .template^file^name[ 0:11 ],
+               .default^names[ 0:7 ] := 8 * ["  "];
+
+string         .blanks35[0:34] := [ 35 * [ " "] ],
+               .buf^s[ 0:79 ],
+                init^assign^table = 'P' := [
+
+               "SERVER-CUOTAS^SNOVEDAD          ", ABORT,    ! 00!
+               "SERVER-CUOTAS^SLOG              ", ABORT,    ! 01!
+                                                        0 ];
+define          init^assign^name( index ) =
+                    init^assign^table[ ( ( index ) * 33 ) ] #,
+                init^abort^flag( INDEX ) =
+                    init^assign^table[ ( ( index ) * 33 ) + 32 ] #;
+
+!*********************************************************************!
+!*                           LCONF^READ^                             *!
+!*********************************************************************!
+int subproc lconf^read^;
+begin
+if ( stat := lconf^read(fcb.lconf^file^num, lconf,
+                                lconf.prikey,,,,, buf^s,
+                                buf^len ) ) then
+    begin
+    if stat <> 1 and stat <> 11 then
+        !EOF y lconf no encontrado estan permitidos!
+        !otro error detiene el server!
+        call log^utility(4, true);
+
+    return false;
+    end;
+
+if not fnameexpand( lconf.assign^msg.template,
+                    template^file^name ,
+                    default^names ) and
+   lconf.assign^msg.template <> blanks35 for 35 then
+      call log^utility( 4, true);
+
+if not fnameexpand( lconf.assign^msg.file^name,
+                    file^name,
+                    default^names ) then
+       call log^utility(4, true);
+
+return true;
+end; ! of subproc lconf^read^                                         !
+
+
+
+
+!                                                                     !
+!**************************   ENTRY POINT   **************************!
+!                                                                     !
+
+lconf.prikey.item^typ ':=' "A";
+lconf.prikey.pro^name ':=' [ $len( lconf.prikey.pro^name ) * [ "*" ]];
+use i;
+i := -1;
+while init^assign^name( i := i + 1 ) do
+    begin
+    lconf.prikey.item^name ':=' init^assign^name( i ) for
+        $len( lconf.prikey.item^name );
+
+    if lconf^read^ then
+        begin
+        case i of
+            begin
+            !00! begin
+!SUBVOLUMEN ARCHIVO NOVEDADES!
+                 fcb.ficha^file    ':=' file^name for 12;
+                 fcb.marca^file    ':=' file^name for 12;
+                 fcb.cuotas^file   ':=' file^name for 12;
+                 fcb.bines^file    ':=' file^name for 12;
+                 fcb.dia^hora^file ':=' file^name for 12;
+                 fcb.rut^file      ':=' file^name for 12;
+                 fcb.rubro^file    ':=' file^name for 12;
+                 fcb.comercio^file ':=' file^name for 12;
+                 fcb.tarjeta^file  ':=' file^name for 12;
+                 end;
+            !01! begin
+!LOG!            fcb.log^file  ':=' file^name for 12;
+                 fcb.template^file ':=' template^file^name for 12;
+                 end;
+            !??! otherwise
+                    ! Existe error con indice de la tabla !
+                    begin
+                    call log^utility(4, true);
+                    end;
+            end;
+        end;
+    end;
+drop i;
+end; ! Of get^init^assigns                                       !
+
+
+
+
+?section lee^receive
+!*************************************************************!
+!*        PROCEDIMIENTO ENCARGADO DE LEER $RECEIVE           *!
+!*************************************************************!
+
+int proc lee^receive(msg);
+int   .msg;
+begin
+
+
+call readupdate( receive_info.file^num, msg,
+                 max_msg_lgth_l, cnt_read, 10D);
+if <> then
+   return false
+else
+   return true;
+
+end;
+
+
+
+
+?section espera^receive
+!**************************************************************!
+!*  ESPERA ALGUNA LLAMADA DESDE $RECEIVE O TIMEOUT DEFINIDO   *!
+!**************************************************************!
+int proc espera^receive;
+
+begin
+int      error := 0,
+         bytes^transferidos := 0;
+
+int(32)  tag := 0D;
+
+                !espera 1 segundo -> 100 centesimas como maximo!
+call awaitio( receive_info.file^num, , bytes^transferidos, tag, 100D);
+if <> then
+   begin   !determinar el error!
+   call fileinfo(receive_info.file^num, error);
+   return error;
+   end
+else
+   begin
+   cnt_read := bytes^transferidos;
+   return 0;
+   end;
+end;
+
+
+?section carga^novedades
+!***************************************************************!
+!*     Este procedimiento es el encargado de cargar las tablas *!
+!* de memoria con la informacion existente en los archivos de  *!
+!* novedades.                                                  *!
+!*                                                             *!
+!***************************************************************!
+proc carga^novedades;
+begin
+
+int problems := false,
+    cont  := 0,
+    error := 0,
+    build^tables := false;
+
+
+?page  "subproc inicializa^tablas"
+int subproc inicializa^tablas;
+begin
+
+
+use i;
+for i := 0 to 399 do
+   begin
+   t^fichas[i].tipo^promo.byte[0] ':=' " " & t^fichas.tipo^promo.byte[0]
+                                            for 17;
+   t^fichas[i].id^interno := 0;
+   t^fichas[i].fecha^vencimiento ':=' "      ";
+   t^fichas[i].monto1 := 0F;
+   t^fichas[i].monto2 := 0F;
+   t^fichas[i].monto ':=' " " & t^fichas.monto for 7;
+   end;
+drop i;
+
+
+return FALSE; !no problems!
+
+end;
+
+
+
+
+
+!***************        M A I N        ***************!
+
+problems := abrir^novedades(1 !novedades!);
+if not problems then
+   begin
+   build^tables := true;
+   if not (problems := inicializa^tablas) then
+      begin
+
+      !primero la ficha de promociones!
+      if not (problems := carga^fichas) and not adm^promo.no^existe^promo then
+         begin
+         !matriz de cuotas!
+         if not (problems := carga^cuotas) then
+            begin
+            !matriz de marcas!
+            if not (problems := carga^marcas) then
+               begin
+
+               seg^activos := seg^activos + 1;
+               error := alloc_xsegment(seg^activos,1048576D );
+               if error = 1 then
+                  begin
+                  error := pool_define_(segmentos^cntl[seg^activos].ptr,
+                                        1048576D !size!, 0 !8 byte align!,);
+                  if error <> 0 then
+                     begin
+                     error := dealloc_xsegment(seg^activos);
+                     problems := true;
+                     end
+                  else
+                     begin
+                     !vector dinamico dia-hora!
+                     if not (problems := carga^dia) then
+                        begin
+
+                        !vector dinamico bin!
+                        if not (problems := carga^bin) then
+                           begin
+
+                           !vector dinamico rubro!
+                           if not (problems := carga^rubro) then
+                              begin
+
+                              !vector dinamico rubro!
+                              if not (problems := carga^rut) then
+                                 begin
+
+                                 !todo cargado!
+
+                                 end; !de rut!
+                              end; !de rubro!
+                           end; !de bin!
+                        end; !de dia-hora!
+                     end; !de pool creada!
+                  end
+               else
+                  !segmento no creado -> nada más que hacer!
+                  problems := true;
+
+               end; !de marcas!
+            end; !de cuotas!
+         end; !de fichas!
+      end; !de inicializa tablas!
+   end; !de abrir novedades!
+
+
+
+if problems then
+   begin
+   !se debe intentar con archivos old!
+   problems := false;
+   call log^utility(3, false);
+
+   call cierra^archivos(0, false);
+
+   if build^tables then
+      begin
+
+      for cont := 0 to 29 do
+         begin
+         if @segmentos^cntl[cont].ptr <> 0D then
+            begin
+            error := dealloc_xsegment(cont);
+            @segmentos^cntl[cont].ptr := 0D;
+            end;
+         end;
+
+      seg^activos := 0;
+      end;
+
+
+   problems := abrir^novedades(2 !old!);
+   if not problems then
+      begin
+      build^tables := true;
+      if not (problems := inicializa^tablas) then
+         begin
+         !primero la ficha de promociones!
+         if not (problems := carga^fichas) and
+            not adm^promo.no^existe^promo then
+            begin
+            !matriz de cuotas!
+            if not (problems := carga^cuotas) then
+               begin
+               !matriz de marcas!
+               if not (problems := carga^marcas) then
+                  begin
+
+                  seg^activos := seg^activos + 1;
+                  error := alloc_xsegment(seg^activos,1048576D );
+                  if error = 1 then
+                     begin
+                     error := pool_define_(segmentos^cntl[seg^activos].ptr,
+                                         1048576D !size!, 0 !8 byte align!,);
+                     if error <> 0 then
+                        begin
+                        error := dealloc_xsegment(seg^activos);
+                        problems := true;
+                        end
+                     else
+                        begin
+                        !vector dinamico dia-hora!
+                        if not (problems := carga^dia) then
+                           begin
+
+                           !vector dinamico bin!
+                           if not (problems := carga^bin) then
+                              begin
+
+                              !vector dinamico rubro!
+                              if not (problems := carga^rubro) then
+                                 begin
+
+                                 !vector dinamico rubro!
+                                 if not (problems := carga^rut) then
+                                    begin
+
+                                    !todo cargado!
+
+                                    end; !de rut!
+                                 end; !de rubro!
+                              end; !de bin!
+                           end; !de dia-hora!
+                        end; !de pool creada!
+                     end
+                  else
+                     !segmento no creado -> nada más que hacer!
+                     problems := true;
+
+                  end; !de marcas!
+               end; !de cuotas!
+            end; !de fichas!
+         end; !de inicializa tablas!
+      end;
+   end;
+
+if problems then
+   !existio problema insuperable, el server-cuotas se debe detener!
+   begin
+
+   for cont := 0 to 29 do
+      begin
+      if @segmentos^cntl[cont].ptr <> 0D then
+         error := dealloc_xsegment(cont);
+      end;
+
+   call log^utility(17, true);
+
+   end
+else
+   call cierra^archivos(1, false);
+
+end;
+
+
+
+
+
+?section abrir^novedades
+!*****************************************************************!
+!*  Procedimiento encargado de abrir los archivos de novedades   *!
+!*                                                               *!
+!*  input  :  1 -> archivo de novedades.                         *!
+!*            2 -> archivos backup.                              *!
+!*  retorna:  FALSE -> todos los archivos abiertos.              *!
+!*            TRUE  -> cualquier problema.                       *!
+!*****************************************************************!
+int proc abrir^novedades(version);
+int version;
+
+begin
+int     flag  := %002000,             !read only - share!
+        error := 0,
+        file  := 0;
+string .ptr;
+
+!no se valida la existencia del parametro dado que es obligatorio!
+!solo se debe validar su valor!
+if version <> 1 and version <> 2 then
+   return TRUE;
+
+while (file := file + 1) < 10 do
+   begin
+   error := 0;
+
+   case file of
+      begin
+
+      1 -> !ficha de promocion!
+         begin
+         @ptr := @fcb.ficha^file[8] '<<' 1;
+         if version = 1 then
+            ptr ':=' "FICHAS  "
+         else
+            ptr ':=' "OFICHAS ";
+
+         call open(fcb.ficha^file, fcb.ficha^file^num, flag, 0);
+         if <> then
+            begin
+            call fileinfo(fcb.ficha^file^num, error);
+            if error = 12 then !file in use!
+               begin
+               call open(fcb.ficha^file, fcb.ficha^file^num, flag, 0);
+               if <> then
+                  return TRUE;
+               end
+            else
+               return TRUE;
+
+            end; !del open!
+         end; !del 1 ->!
+
+
+      2 -> !marca!
+         begin
+         @ptr := @fcb.marca^file[8] '<<' 1;
+
+         if version = 1 then
+            ptr ':=' "MARCA   "
+         else
+            ptr ':=' "OMARCA  ";
+
+         call open(fcb.marca^file, fcb.marca^file^num, flag, 0);
+         if <> then
+            begin
+            call fileinfo(fcb.marca^file^num, error);
+            if error = 12 !file in use! then
+               begin
+               call open(fcb.marca^file, fcb.marca^file^num, flag, 0);
+               if <> then
+                  return TRUE;
+               end
+            else
+               return TRUE;
+
+            end; !del open!
+         end; !del 2 ->!
+
+      3 -> !cuotas!
+         begin
+         @ptr := @fcb.cuotas^file[8] '<<' 1;
+
+         if version = 1 then
+            ptr ':=' "CUOTAS  "
+         else
+            ptr ':=' "OCUOTAS ";
+
+         call open(fcb.cuotas^file, fcb.cuotas^file^num, flag, 0);
+         if <> then
+            begin
+            call fileinfo(fcb.cuotas^file^num, error);
+            if error = 12 !file in use! then
+               begin
+               call open(fcb.cuotas^file, fcb.cuotas^file^num, flag, 0);
+               if <> then
+                  return TRUE;
+               end
+            else
+               return TRUE;
+
+            end; !del open!
+         end; !del 3 ->!
+
+      4 -> !bines!
+         begin
+         @ptr := @fcb.bines^file[8] '<<' 1;
+
+         if version = 1 then
+            ptr ':=' "BIN     "
+         else
+            ptr ':=' "OBIN    ";
+
+         call open(fcb.bines^file, fcb.bines^file^num, flag, 0);
+         if <> then
+            begin
+            call fileinfo(fcb.bines^file^num, error);
+            if error = 12 !file in use! then
+               begin
+               call open(fcb.bines^file, fcb.bines^file^num, flag, 0);
+               if <> then
+                  return TRUE;
+               end
+            else
+               return TRUE;
+
+            end; !del open!
+         end; !del 4 ->!
+
+      5 -> !dia-hora!
+         begin
+         @ptr := @fcb.dia^hora^file[8] '<<' 1;
+
+         if version = 1 then
+            ptr ':=' "DIAHORA "
+         else
+            ptr ':=' "ODIAHORA";
+
+         call open(fcb.dia^hora^file, fcb.dia^hora^file^num, flag, 0);
+         if <> then
+            begin
+            call fileinfo(fcb.dia^hora^file^num, error);
+            if error = 12 !file in use! then
+               begin
+               call open(fcb.dia^hora^file, fcb.dia^hora^file^num, flag, 0);
+               if <> then
+                  return TRUE;
+               end
+            else
+               return TRUE;
+
+            end; !del open!
+         end; !del 5 ->!
+
+      6 -> !rut!
+         begin
+         @ptr := @fcb.rut^file[8] '<<' 1;
+
+         if version = 1 then
+            ptr ':=' "RUT     "
+         else
+            ptr ':=' "ORUT    ";
+
+         call open(fcb.rut^file, fcb.rut^file^num, flag, 0);
+         if <> then
+            begin
+            call fileinfo(fcb.rut^file^num, error);
+            if error = 12 !file in use! then
+               begin
+               call open(fcb.rut^file, fcb.rut^file^num, flag, 0);
+               if <> then
+                  return TRUE;
+               end
+            else
+               return TRUE;
+
+            end; !del open!
+         end; !del 6 ->!
+
+      7 -> !rubro!
+         begin
+         @ptr := @fcb.rubro^file[8] '<<' 1;
+
+         if version = 1 then
+            ptr ':=' "RUBRO   "
+         else
+            ptr ':=' "ORUBRO  ";
+
+         call open(fcb.rubro^file, fcb.rubro^file^num, flag, 0);
+         if <> then
+            begin
+            call fileinfo(fcb.rubro^file^num, error);
+            if error = 12 !file in use! then
+               begin
+               call open(fcb.rubro^file, fcb.rubro^file^num, flag, 0);
+               if <> then
+                  return TRUE;
+               end
+            else
+               return TRUE;
+
+            end; !del open!
+         end; !del 7 ->!
+
+      8 -> !comercio!
+         begin
+         @ptr := @fcb.comercio^file[8] '<<' 1;
+
+         if version = 1 then
+            ptr ':=' "COMERCI "
+         else
+            ptr ':=' "OCOMERCI";
+
+         call open(fcb.comercio^file, fcb.comercio^file^num, flag, 0);
+         if <> then
+            begin
+            call fileinfo(fcb.comercio^file^num, error);
+            if error = 12 !file in use! then
+               begin
+               call open(fcb.comercio^file, fcb.comercio^file^num, flag, 0);
+               if <> then
+                  return TRUE;
+               end
+            else
+               return TRUE;
+
+            end; !del open!
+         end; !del 8 ->!
+
+      9 -> !tarjeta!
+         begin
+         @ptr := @fcb.tarjeta^file[8] '<<' 1;
+
+         if version = 1 then
+            ptr ':=' "TARJETA "
+         else
+            ptr ':=' "OTARJETA";
+
+         call open(fcb.tarjeta^file, fcb.tarjeta^file^num, flag, 0);
+         if <> then
+            begin
+            call fileinfo(fcb.tarjeta^file^num, error);
+            if error = 12 !file in use! then
+               begin
+               call open(fcb.tarjeta^file, fcb.tarjeta^file^num, flag, 0);
+               if <> then
+                  return TRUE;
+               end
+            else
+               return TRUE;
+
+            end; !del open!
+         end; !del 9 ->!
+
+      otherwise ->
+         begin
+         return TRUE;
+         end;
+
+      end; !del case!
+   end; !del while!
+
+return FALSE;
+end; !del proc!
+
+
+
+
+?section carga^fichas
+?page "carga^fichas"
+!********************************************************************!
+!*                                                                  *!
+!*  Carga las fichas en la tabla de memoria                         *!
+!*                                                                  *!
+!********************************************************************!
+int proc carga^fichas;
+begin
+
+int  contador := -1,
+     key^len  := 0,
+     k := 0,
+     j := 0,
+     leidos,
+     eof      := FALSE;
+
+int    .temp[0:24];
+
+string .key^term[0:17];
+
+
+
+key^term[0] ':=' " " & key^term[0] for 17;  !para que quede en inicio!
+
+call keyposition(fcb.ficha^file^num, key^term, , key^len, 0);
+if <> then
+   return TRUE;
+
+adm^promo.no^existe^promo := FALSE;
+adm^promo.existe^emisor := FALSE;
+adm^promo.existe^comercio := FALSE;
+adm^promo.num^emisor := 0;
+adm^promo.num^comercio := 0;
+adm^promo.indice^emisor := 0;
+
+
+by^default.bin.vector[0] ':=' [ 75  * [0]];
+vec^in.bin.vector[0]     ':=' [ 75  * [0]];
+vec^ex.bin.vector[0]     ':=' [ 75  * [0]];
+vec^td.bin.vector[0]     ':=' [ 75  * [0]];
+
+while (contador := contador + 1) < 401 and not eof do
+   begin
+   temp[0] ':=' "  " & temp[0] for 24;
+   leidos := 0;
+
+   cont^lote := cont^lote + 1F;
+   if cont^lote = lote then
+      begin
+      call delay(tiempo);
+      cont^lote := 0F;
+      end;
+
+
+   call read(fcb.ficha^file^num, temp, 50, leidos);
+   if <> then
+      begin
+      call fileinfo(fcb.ficha^file^num, leidos);
+      if leidos = 1 then
+         eof := TRUE
+      else
+         return TRUE;
+
+      if contador = 0 then
+         !archivo vacio, (no existen promos)!
+         !segun definicion dada por Alonso Matteo 16/02/2009 el server!
+         !debe continuar rechazando todas las consultas!
+         begin
+         adm^promo.no^existe^promo := TRUE;
+         return FALSE; !no problem!
+         end;
+      end
+   else
+      begin
+
+      if contador < 400 and (contador + 1) = temp[9] then
+         begin
+         t^fichas[contador] ':=' temp[0] for 25 elements;
+
+         !Convertidor Server-Cuotas validó el contenido de los campos!
+
+         if not adm^promo.existe^emisor                    and
+            ( t^fichas[contador].tipo^promo.byte[0] = "PA" or
+              t^fichas[contador].tipo^promo.byte[0] = "PB" or
+              t^fichas[contador].tipo^promo.byte[0] = "PC" ) then
+            adm^promo.existe^emisor := TRUE;
+
+         if t^fichas[contador].tipo^promo.byte[0] = "PD" and
+            not adm^promo.existe^comercio                then
+            begin
+            adm^promo.existe^comercio := TRUE;
+            if not adm^promo.existe^emisor then
+               adm^promo.indice^emisor := 0
+            else
+               adm^promo.indice^emisor := contador -1;
+            adm^promo.num^emisor := contador;
+            end;
+
+         k := $dbl(contador) '/' 16;
+         j := $dbl(contador) '\' 16;
+
+         if t^fichas[contador].bin = "0"  or
+            t^fichas[contador].bin = "2"  then
+            begin
+            if not pinta(by^default.bin.vector[k], j, 1) then
+                return TRUE;
+            end;
+
+         if t^fichas[contador].rut = "0"  or
+            t^fichas[contador].rut = "2"  then
+            begin
+            if not pinta(by^default.rut.vector[k], j, 1) then
+                return TRUE;
+            end;
+
+
+         if t^fichas[contador].rubro = "0"  or
+            t^fichas[contador].rubro = "2"  then
+            begin
+            if not pinta(by^default.rubro.vector[k], j, 1) then
+                return TRUE;
+            end;
+
+
+         if t^fichas[contador].bin = "1"  then
+            begin
+            if not pinta(vec^in.bin.vector[k], j, 1) then
+                return TRUE;
+            end;
+
+         if t^fichas[contador].rut = "1"  then
+            begin
+            if not pinta(vec^in.rut.vector[k], j, 1) then
+                return TRUE;
+            end;
+
+         if t^fichas[contador].rubro = "1"  then
+            begin
+            if not pinta(vec^in.rubro.vector[k], j, 1) then
+                return TRUE;
+            end;
+
+         if t^fichas[contador].bin = "2"  then
+            begin
+            if not pinta(vec^ex.bin.vector[k], j, 1) then
+                return TRUE;
+            end;
+
+         if t^fichas[contador].rut = "2"  then
+            begin
+            if not pinta(vec^ex.rut.vector[k], j, 1) then
+                return TRUE;
+            end;
+
+         if t^fichas[contador].rubro = "2"  then
+            begin
+            if not pinta(vec^ex.rubro.vector[k], j, 1) then
+                return TRUE;
+            end;
+
+         if t^fichas[contador].bin = "0"  then
+            begin
+            if not pinta(vec^td.bin.vector[k], j, 1) then
+                return TRUE;
+            end;
+
+         if t^fichas[contador].rut = "0"  then
+            begin
+            if not pinta(vec^td.rut.vector[k], j, 1) then
+                return TRUE;
+            end;
+
+         if t^fichas[contador].rubro = "0"  then
+            begin
+            if not pinta(vec^td.rubro.vector[k], j, 1) then
+                return TRUE;
+            end;
+
+
+         end
+      else
+         !se detectan más de 400 promociones -> error critico!
+         !se detecta que la posicion en archivo no cuadra con ID_Interno!
+         return TRUE;
+
+      end;
+
+   end; !del while!
+
+
+if adm^promo.existe^emisor and adm^promo.existe^comercio then
+   adm^promo.num^comercio := contador - 1 - adm^promo.num^emisor;
+
+If adm^promo.existe^emisor and not adm^promo.existe^comercio then
+   begin
+   adm^promo.num^emisor := contador -1;
+   adm^promo.indice^emisor := contador -2;
+   end;
+
+If not adm^promo.existe^emisor and adm^promo.existe^comercio then
+   adm^promo.num^comercio := contador -1;
+
+if contador >= 320 then
+   call log^utility( 5, false );
+
+
+call close(fcb.ficha^file^num);
+fcb.ficha^file^num := -1;
+
+
+return FALSE; !no problems!
+
+end;
+
+
+
+?section carga^cuotas
+?page "carga^cuotas"
+!********************************************************************!
+!*                                                                  *!
+!*  Carga los rangos de cuotas en la tabla de memoria               *!
+!*                                                                  *!
+!********************************************************************!
+int proc carga^cuotas;
+begin
+
+int  key^len  := 0,
+!Inicio RPQ: #2-3!
+     i := 0,
+!Fin RPQ: #2-3!
+     k := 0,
+     j := 0,
+     leidos,
+     eof      := FALSE;
+
+int    .temp[0:3],
+       .ptrt(reg^cuotas^def) := @temp[0];
+
+string .key^term[0:5];
+
+
+
+key^term[0] ':=' " " & key^term[0] for 5;
+
+
+!Inicio RPQ: #2-3!
+!use i;
+!for i := 0 to 43 do
+
+for i := 0 to 45 do
+
+   begin
+   t^cuotas[i].vector[0] ':=' [25 * [0]];
+   t^cuotas[i].transformada[0] ':=' [ 400 * [" "]];
+   end;
+!drop i;
+
+!Fin RPQ: #2-3!
+
+
+call keyposition(fcb.cuotas^file^num, key^term, , key^len, 0);
+if <> then
+   return TRUE;
+
+while not eof do
+   begin
+   temp[0] ':=' "  " & temp[0] for 3;
+   leidos := 0;
+
+   cont^lote := cont^lote + 1F;
+   if cont^lote = lote then
+      begin
+      call delay(tiempo);
+      cont^lote := 0F;
+      end;
+
+   call read(fcb.cuotas^file^num, temp, 7, leidos);
+   if <> then
+      begin
+      call fileinfo(fcb.cuotas^file^num, leidos);
+      if leidos = 1 then
+         eof := TRUE
+      else
+         return TRUE;
+      end
+   else
+      begin
+      !carga rango de cuotas sólo para promociones EMISOR!
+      if ptrt.id^interno < 1 or
+         ptrt.id^interno > 400 then
+         return TRUE;
+
+
+      if ptrt.id^interno <= adm^promo.num^emisor then
+         begin
+         k := $dbl(ptrt.id^interno - 1) '/' 16;
+         j := $dbl(ptrt.id^interno - 1) '\' 16;
+
+! Inicio RPQ: #2-3!
+!        use i;
+
+!     if ptrt.cuota^minima < 4 or
+
+      if ptrt.cuota^minima < 2 or
+         ptrt.cuota^minima > 48 then
+         return TRUE;
+
+!     if ptrt.cuota^maxima < 4 or
+
+      if ptrt.cuota^maxima < 2 or
+         ptrt.cuota^maxima > 48 then
+         return TRUE;
+
+!        for i := (ptrt.cuota^minima - 4) to (ptrt.cuota^maxima - 4) do
+
+         for i := (ptrt.cuota^minima - 2) to (ptrt.cuota^maxima - 2) do
+            begin
+            if not pinta(t^cuotas[i].vector[k], j, 1) then
+               return TRUE;
+            t^cuotas[i].transformada[ptrt.id^interno - 1] ':='
+                                             ptrt.cuota^transformada for 1;
+            end;
+!        drop i;
+         end
+      else
+         return TRUE;
+
+
+
+      end; !de lectura!
+
+   end; !del while!
+
+!Fin RPQ: #2-3!
+
+call close(fcb.cuotas^file^num);
+fcb.cuotas^file^num := -1;
+
+
+return FALSE; !no problems!
+
+end;
+
+
+
+
+?section carga^marcas
+?page "carga^marcas"
+!********************************************************************!
+!*                                                                  *!
+!*  Carga la información de las promociones asociadas a las marcas  *!
+!*                                                                  *!
+!********************************************************************!
+int proc carga^marcas;
+begin
+
+int  key^len  := 0,
+     k := 0,
+     j := 0,
+     leidos,
+     eof      := FALSE;
+
+int    .temp[0:1],
+       .ptrt(reg^marca^def) := @temp[0];
+
+string .key^term[0:3];
+
+
+
+key^term[0] ':=' " " & key^term[0] for 3;
+
+t^marca.visa.vector[0] ':=' [125 * [0]];
+
+call keyposition(fcb.marca^file^num, key^term, , key^len, 0);
+if <> then
+   return TRUE;
+
+while not eof do
+   begin
+   temp[0] ':=' "    ";
+   leidos := 0;
+
+   cont^lote := cont^lote + 1F;
+   if cont^lote = lote then
+      begin
+      call delay(tiempo);
+      cont^lote := 0F;
+      end;
+
+   call read(fcb.marca^file^num, temp, 4, leidos);
+   if <> then
+      begin
+      call fileinfo(fcb.marca^file^num, leidos);
+      if leidos = 1 then
+         eof := TRUE
+      else
+         return TRUE;
+      end
+   else
+      begin
+
+      if ptrt.id^interno < 1 or
+         ptrt.id^interno > 400 then
+         return TRUE;
+
+      k := $dbl(ptrt.id^interno - 1) '/' 16;
+      j := $dbl(ptrt.id^interno - 1) '\' 16;
+
+      !tipos sacados desde cobnames!
+      if ptrt.id^marca.byte[0] = "AX" then !American Express!
+         begin
+         if not pinta(t^marca.amex.vector[k], j, 1) then
+            return TRUE;
+         end
+      else
+         begin
+         if ptrt.id^marca.byte[0] = "M " then !MasterCard credit!
+            begin
+            if not pinta(t^marca.master.vector[k], j, 1) then
+               return TRUE;
+            end
+         else
+            begin
+            if ptrt.id^marca.byte[0] = "V " then !Visa credit!
+               begin
+               if not pinta(t^marca.visa.vector[k], j, 1) then
+                  return TRUE;
+               end
+            else
+               begin
+               if ptrt.id^marca.byte[0] = "DC" then !Diners!
+                  begin
+                  if not pinta(t^marca.diners.vector[k], j, 1) then
+                     return TRUE;
+                  end
+               else
+                  begin
+                  if ptrt.id^marca.byte[0] = "MA" then !Magna!
+                     begin
+                     if not pinta(t^marca.magna.vector[k], j, 1) then
+                        return TRUE;
+                     end
+                  else
+                     !ID no permitido!
+                     return TRUE;
+                  end;
+               end;
+            end;
+         end;
+
+      end; !de lectura!
+
+   end; !del while!
+
+
+call close(fcb.marca^file^num);
+fcb.marca^file^num := -1;
+
+
+return FALSE; !no problems!
+
+end;
+
+
+
+
+?section carga^dia
+?page "carga^dia"
+!********************************************************************!
+!*                                                                  *!
+!*  Carga la información del archivo DIA-HORA                       *!
+!*                                                                  *!
+!********************************************************************!
+int proc carga^dia;
+begin
+
+int  leidos,
+     error    := 0,
+     eof      := FALSE;
+
+int     .temp[0:5],
+        .ptrt(reg^dia^hora^def) := @temp[0],
+    .ext p^nodo(nodo);
+
+int(32) dir := -1D;
+
+
+
+use i;
+for i := 0 to 399 do
+   begin
+   @t^dia^hora[i].ptr^dir := 0D;
+   end;
+drop i;
+
+call position(fcb.dia^hora^file^num, 0D);
+if <> then
+   !imposible posicionar -> seria todo!
+   return TRUE;
+
+while not eof do
+   begin
+   temp[0] ':=' "            ";
+   leidos := 0;
+
+   cont^lote := cont^lote + 1F;
+   if cont^lote = lote then
+      begin
+      call delay(tiempo);
+      cont^lote := 0F;
+      end;
+
+   call read(fcb.dia^hora^file^num, temp, 12, leidos);
+   if <> then
+      begin
+      call fileinfo(fcb.dia^hora^file^num, leidos);
+      if leidos = 1 then
+         eof := TRUE
+      else
+         return TRUE;
+      end
+   else
+      begin
+      if ptrt.id^interno < 1 or
+         ptrt.id^interno > 400 then
+         return TRUE;
+
+      if ptrt.id^interno > adm^promo.num^emisor then
+         return TRUE;
+
+      if crea^espacio(10D, dir) then
+         begin
+         @p^nodo := 0D;
+         if @t^dia^hora[ptrt.id^interno - 1].ptr^dir = 0D then
+            begin
+            @t^dia^hora[ptrt.id^interno - 1].ptr^dir := dir;
+            @p^nodo := dir;
+            end
+         else
+            begin
+            @p^nodo := @t^dia^hora[ptrt.id^interno - 1].ptr^dir;
+            while @p^nodo.ptr^next <> 0D do
+               begin
+               @p^nodo := @p^nodo.ptr^next;
+               end;
+
+            @p^nodo.ptr^next := dir;
+            @p^nodo := dir;
+            end;
+
+         p^nodo.inicio ':=' ptrt.dia^inicio for 1;
+         p^nodo.fin    ':=' ptrt.dia^fin for 1;
+         p^nodo.h^inicio[0] ':=' ptrt.hora^inicio.byte[0] for 4;
+         p^nodo.h^fin[0] ':=' ptrt.hora^fin.byte[0] for 4;
+         @p^nodo.ptr^next := 0D;
+         end
+      else
+         return TRUE;
+
+      end; !de lectura!
+
+   end; !del while!
+
+
+call close(fcb.dia^hora^file^num);
+fcb.dia^hora^file^num := -1;
+
+
+return FALSE; !no problems!
+
+end;
+
+
+
+
+?section carga^bin
+?page "carga^bin"
+!********************************************************************!
+!*                                                                  *!
+!*  Carga la información del archivo BIN                            *!
+!*                                                                  *!
+!********************************************************************!
+int proc carga^bin;
+begin
+
+int  leidos,
+     key^len  := 0,
+     hash^id  := -1,
+     i        := 0,
+     k        := -1,
+     j        := -1,
+     error    := 0,
+     eof      := FALSE;
+
+string  .key^term[0:11] := [ 12 * [" "]];
+
+int     .temp[0:406],
+        .vec^temp1[0:24],
+        .vec^temp2[0:24],
+        .ptrt(reg^bin^def) := @temp[0],
+    .ext p^nodo(nodo2),
+    .ext p^nodo^t(nodo2^t);
+
+int(32) dir := -1D;
+
+
+
+for i := 0 to 807 do
+   begin
+   @hash^bin[i].ptr^dir := 0D;
+   end;
+
+call keyposition(fcb.bines^file^num, key^term, , key^len, 0);
+if <> then
+   !imposible posicionar -> seria todo!
+   return TRUE;
+
+while not eof do
+   begin
+   temp[0] ':=' "  " & temp[0] for 405 words;
+   leidos := 0;
+
+   cont^lote := cont^lote + 1F;
+   if cont^lote = lote then
+      begin
+      call delay(tiempo);
+      cont^lote := 0F;
+      end;
+
+   call read(fcb.bines^file^num, temp, 814, leidos);
+   if <> then
+      begin
+      call fileinfo(fcb.bines^file^num, leidos);
+      if leidos = 1 then
+         eof := TRUE
+      else
+         return TRUE;
+      end
+   else
+      begin
+      if not H1(ptrt.id^bin, 1, hash^id) then
+         return TRUE;
+
+      if @hash^bin[hash^id].ptr^dir = 0D then
+         begin
+         if crea^espacio(66D, dir) then
+            begin
+            @hash^bin[hash^id].ptr^dir := dir;
+            @p^nodo := dir;
+            end
+         else
+            return TRUE;
+         end !de asignacio directa!
+      else
+         begin
+         @p^nodo := @hash^bin[hash^id].ptr^dir;
+         if not H2(ptrt.id^bin, 1, hash^id) then
+            return TRUE;
+
+         if @p^nodo.ptr^next = 0D then
+            begin
+            if crea^espacio(44D, dir) then
+               begin
+               @p^nodo.ptr^next := dir;
+               @p^nodo^t := dir;
+               for i := 0 to 10 do
+                  begin
+                  @p^nodo^t.t^rehash[i].ptr^dir := 0D;
+                  end;
+               dir := -1D;
+               if crea^espacio(66D, dir) then
+                  begin
+                  @p^nodo^t.t^rehash[hash^id].ptr^dir := dir;
+                  @p^nodo := dir;
+                  end
+               else
+                  return TRUE;
+               end
+            else
+               return TRUE;
+
+            end
+         else
+            begin
+            @p^nodo^t := @p^nodo.ptr^next;
+            if @p^nodo^t.t^rehash[hash^id].ptr^dir = 0D then
+               begin
+               if crea^espacio(66D, dir) then
+                  begin
+                  @p^nodo^t.t^rehash[hash^id].ptr^dir := dir;
+                  @p^nodo := dir;
+                  end
+               else
+                  return TRUE;
+               end
+            else
+               begin
+               @p^nodo := @p^nodo^t.t^rehash[hash^id].ptr^dir;
+               while @p^nodo.ptr^next <> 0D do
+                  begin
+                  @p^nodo := @p^nodo.ptr^next;
+                  end;
+
+               if crea^espacio(66D, dir) then
+                  begin
+                  @p^nodo.ptr^next := dir;
+                  @p^nodo := dir;
+                  end
+               else
+                  return TRUE;
+               end;
+            end; ! de segunda colision!
+         end; ! colision detectada!
+
+      p^nodo.bin ':=' ptrt.id^bin for 11;
+      p^nodo.colision ':=' " ";
+
+      p^nodo.vector[0] ':=' [25 * [0]];
+      for i := 0 to (ptrt.cant^promo -1) do
+         begin
+         if ptrt.promo[i].id^interno < 1 or
+            ptrt.promo[i].id^interno > 400 then
+            return TRUE;
+         if ptrt.promo[i].id^interno > adm^promo.num^emisor then
+            return TRUE;
+         k := $dbl(ptrt.promo[i].id^interno - 1) '/' 16;
+         j := $dbl(ptrt.promo[i].id^interno - 1) '\' 16;
+         if not pinta(p^nodo.vector[k], j, 1) then
+            return TRUE;
+         end;
+
+      k := $dbl(adm^promo.indice^emisor) '/' 16;
+      vec^temp1[0] ':=' [ 25 * [0]];
+      vec^temp2[0] ':=' [ 25 * [0]];
+      for i := 0 to k do
+         begin
+         vec^temp1[i] := p^nodo.vector[i] LAND vec^in.bin.vector[i];
+         vec^temp2[i] := p^nodo.vector[i] XOR  vec^ex.bin.vector[i];
+         vec^temp2[i] := vec^temp2[i] LAND vec^ex.bin.vector[i];
+         p^nodo.vector[i] := vec^temp1[i] XOR vec^temp2[i];
+         p^nodo.vector[i] := p^nodo.vector[i] XOR vec^td.bin.vector[i];
+         end;
+
+      @p^nodo.ptr^next := 0D;
+      end; !de lectura!
+
+   end; !del while!
+
+
+call close(fcb.bines^file^num);
+fcb.bines^file^num := -1;
+
+
+return FALSE; !no problems!
+
+end;
+
+
+
+
+
+?section carga^rubro
+?page "carga^rubro"
+!********************************************************************!
+!*                                                                  *!
+!*  Carga la información del archivo RUBRO                          *!
+!*                                                                  *!
+!********************************************************************!
+int proc carga^rubro;
+begin
+
+int  leidos,
+     key^len  := 0,
+     hash^id  := -1,
+     i        := 0,
+     k        := -1,
+     j        := -1,
+     error    := 0,
+     eof      := FALSE;
+
+string  .key^term[0:3] := [ 4 * [" "]];
+
+int     .temp[0:402],
+        .vec^temp1[0:24],
+        .vec^temp2[0:24],
+        .ptrt(reg^rubro^def) := @temp[0],
+    .ext p^nodo(nodo3),
+    .ext p^nodo^t(nodo2^t);
+
+int(32) dir := -1D;
+
+
+
+for i := 0 to 597 do
+   begin
+   @hash^rubro[i].ptr^dir := 0D;
+   end;
+
+call keyposition(fcb.rubro^file^num, key^term, , key^len, 0);
+if <> then
+   return TRUE;
+
+while not eof do
+   begin
+   temp[0] ':=' "  " & temp[0] for 402 words;
+   leidos := 0;
+
+   cont^lote := cont^lote + 1F;
+   if cont^lote = lote then
+      begin
+      call delay(tiempo);
+      cont^lote := 0F;
+      end;
+
+   call read(fcb.rubro^file^num, temp, 806, leidos);
+   if <> then
+      begin
+      call fileinfo(fcb.rubro^file^num, leidos);
+      if leidos = 1 then
+         eof := TRUE
+      else
+         return TRUE;
+      end
+   else
+      begin
+      if not H1(ptrt.id^rubro, 2, hash^id) then
+         return TRUE;
+
+      if @hash^rubro[hash^id].ptr^dir = 0D then
+         begin
+         if crea^espacio(58D, dir) then
+            begin
+            @hash^rubro[hash^id].ptr^dir := dir;
+            @p^nodo := dir;
+            end
+         else
+            return TRUE;
+         end !de asignacio directa!
+      else
+         begin
+         @p^nodo := @hash^rubro[hash^id].ptr^dir;
+         if not H2(ptrt.id^rubro, 2, hash^id) then
+            return TRUE;
+
+         if @p^nodo.ptr^next = 0D then
+            begin
+            if crea^espacio(44D, dir) then
+               begin
+               @p^nodo.ptr^next := dir;
+               @p^nodo^t := dir;
+               for i := 0 to 10 do
+                  begin
+                  @p^nodo^t.t^rehash[i].ptr^dir := 0D;
+                  end;
+               dir := -1D;
+               if crea^espacio(58D, dir) then
+                  begin
+                  !asigna en rehash un nodo!
+                  @p^nodo^t.t^rehash[hash^id].ptr^dir := dir;
+                  @p^nodo := dir;
+                  end
+               else
+                  return TRUE;
+               end
+            else
+               return TRUE;
+
+            end
+         else
+            begin
+            @p^nodo^t := @p^nodo.ptr^next;
+            if @p^nodo^t.t^rehash[hash^id].ptr^dir = 0D then
+               begin
+               if crea^espacio(58D, dir) then
+                  begin
+                  @p^nodo^t.t^rehash[hash^id].ptr^dir := dir;
+                  @p^nodo := dir;
+                  end
+               else
+                  return TRUE;
+               end
+            else
+               begin
+               @p^nodo := @p^nodo^t.t^rehash[hash^id].ptr^dir;
+               while @p^nodo.ptr^next <> 0D do
+                  begin
+                  @p^nodo := @p^nodo.ptr^next;
+                  end;
+
+               if crea^espacio(58D, dir) then
+                  begin
+                  @p^nodo.ptr^next := dir;
+                  @p^nodo := dir;
+                  end
+               else
+                  return TRUE;
+               end;
+            end; ! de segunda colision!
+         end; ! colision detectada!
+
+      p^nodo.rubro ':=' ptrt.id^rubro for 3;
+      p^nodo.colision ':=' " ";
+
+      p^nodo.vector[0] ':=' [25 * [0]];
+      for i := 0 to (ptrt.cant^promo -1) do
+         begin
+         if ptrt.promo[i].id^interno < 1 or
+            ptrt.promo[i].id^interno > 400 then
+            return TRUE;
+         if ptrt.promo[i].id^interno > adm^promo.num^emisor then
+            !se intenta asignar parametro a promo comercio!
+            return TRUE;
+         k := $dbl(ptrt.promo[i].id^interno - 1) '/' 16;
+         j := $dbl(ptrt.promo[i].id^interno - 1) '\' 16;
+         if not pinta(p^nodo.vector[k], j, 1) then
+            return TRUE;
+         end;
+
+      k := $dbl(adm^promo.indice^emisor) '/' 16;
+      vec^temp1[0] ':=' [ 25 * [0]];
+      vec^temp2[0] ':=' [ 25 * [0]];
+      for i := 0 to k do
+         begin
+         vec^temp1[i] := p^nodo.vector[i] LAND vec^in.rubro.vector[i];
+         vec^temp2[i] := p^nodo.vector[i] XOR  vec^ex.rubro.vector[i];
+         vec^temp2[i] := vec^temp2[i] LAND vec^ex.rubro.vector[i];
+         p^nodo.vector[i] := vec^temp1[i] XOR vec^temp2[i];
+         p^nodo.vector[i] := p^nodo.vector[i] XOR vec^td.rubro.vector[i];
+         end;
+
+      @p^nodo.ptr^next := 0D;
+      end; !de lectura!
+
+   end; !del while!
+
+
+call close(fcb.rubro^file^num);
+fcb.rubro^file^num := -1;
+
+
+return FALSE; !no problems!
+
+end;
+
+
+
+
+?section carga^rut
+?page "carga^rut"
+!********************************************************************!
+!*                                                                  *!
+!*  Carga la información del archivo RUT                            *!
+!*                                                                  *!
+!********************************************************************!
+int proc carga^rut;
+begin
+
+int  leidos,
+     key^len  := 0,
+     hash^id  := -1,
+     i        := 0,
+     k        := -1,
+     j        := -1,
+     error    := 0,
+     eof      := FALSE;
+
+string  .key^term[0:9] := [ 10 * [" "]];
+
+int     .temp[0:1205],
+        .ptrt(reg^rut^def) := @temp[0],
+    .ext p^nodo(nodo4),
+    .ext p^nodo^t(nodo2^t);
+
+
+int(32) dir := -1D;
+
+int  vector^local[0:24];
+int  espacio;
+struct .tabla(nodo4);
+
+
+
+
+
+for i := 0 to 2998 do
+   begin
+   @hash^rut[i].ptr^dir := 0D;
+   end;
+
+call keyposition(fcb.rut^file^num, key^term, , key^len, 0);
+if <> then
+   return TRUE;
+
+while not eof do
+   begin
+   temp[0] ':=' "  " & temp[0] for 1205 words;
+   leidos := 0;
+   vector^local[0] ':=' [ 25 * [0]];
+   espacio := 66;
+   tabla.cant^promo ':=' [ 2401 * [0]];
+
+   cont^lote := cont^lote + 1F;
+   if cont^lote = lote then
+      begin
+      call delay(tiempo);
+      cont^lote := 0F;
+      end;
+
+   call read(fcb.rut^file^num, temp, 2412, leidos);
+   if <> then
+      begin
+      call fileinfo(fcb.rut^file^num, leidos);
+      if leidos = 1 then
+         eof := TRUE
+      else
+         return TRUE;
+      end
+   else
+      begin
+      for i := 0 to (ptrt.cant^promo -1) do
+         begin
+         if ptrt.promo[i].id^interno < 1 or
+            ptrt.promo[i].id^interno > 400 then
+            return TRUE;
+         if ptrt.promo[i].id^interno <= adm^promo.num^emisor then
+            !promocion emisor!
+            begin
+            k := $dbl(ptrt.promo[i].id^interno - 1) '/' 16;
+            j := $dbl(ptrt.promo[i].id^interno - 1) '\' 16;
+            if not pinta(vector^local[k], j, 1) then
+               return TRUE;
+            end
+         else
+            begin
+            tabla.promos[tabla.cant^promo].id^interno :=
+                            ptrt.promo[i].id^interno;
+            tabla.promos[tabla.cant^promo].c^min :=
+                            ptrt.promo[i].cuota^minimo;
+            tabla.promos[tabla.cant^promo].c^max :=
+                            ptrt.promo[i].cuota^maximo;
+            tabla.cant^promo := tabla.cant^promo +1;
+            end;
+         end;
+
+      espacio := espacio + (tabla.cant^promo * 6) + 2; !a extra word!
+      if not H1(ptrt.id^rut, 3, hash^id) then
+         return TRUE;
+
+      if @hash^rut[hash^id].ptr^dir = 0D then
+         begin
+         if crea^espacio($dbl(espacio), dir) then
+            begin
+            @hash^rut[hash^id].ptr^dir := dir;
+            @p^nodo := dir;
+            end
+         else
+            return TRUE;
+         end !de asignacio directa!
+      else
+         begin
+         @p^nodo := @hash^rut[hash^id].ptr^dir;
+         if not H2(ptrt.id^rut, 3, hash^id) then
+            return TRUE;
+         if @p^nodo.ptr^next = 0D then
+            begin
+            if crea^espacio(44D, dir) then
+               begin
+               @p^nodo.ptr^next := dir;
+               @p^nodo^t := dir;
+               for i := 0 to 10 do
+                  begin
+                  @p^nodo^t.t^rehash[i].ptr^dir := 0D;
+                  end;
+               dir := -1D;
+               if crea^espacio($dbl(espacio), dir) then
+                  begin
+                  !asigna en rehash un nodo!
+                  @p^nodo^t.t^rehash[hash^id].ptr^dir := dir;
+                  @p^nodo := dir;
+                  end
+               else
+                  return TRUE;
+               end
+            else
+               return TRUE;
+
+            end
+         else
+            begin
+            @p^nodo^t := @p^nodo.ptr^next;
+            if @p^nodo^t.t^rehash[hash^id].ptr^dir = 0D then
+               begin
+               if crea^espacio($dbl(espacio), dir) then
+                  begin
+                  @p^nodo^t.t^rehash[hash^id].ptr^dir := dir;
+                  @p^nodo := dir;
+                  end
+               else
+                  return TRUE;
+               end
+            else
+               begin
+               @p^nodo := @p^nodo^t.t^rehash[hash^id].ptr^dir;
+               while @p^nodo.ptr^next <> 0D do
+                  begin
+                  @p^nodo := @p^nodo.ptr^next;
+                  end;
+
+               if crea^espacio($dbl(espacio), dir) then
+                  begin
+                  @p^nodo.ptr^next := dir;
+                  @p^nodo := dir;
+                  end
+               else
+                  return TRUE;
+               end;
+            end; ! de segunda colision!
+         end; ! colision detectada!
+
+      p^nodo.rut ':=' ptrt.id^rut for 10;
+      p^nodo.vector[0] ':=' vector^local[0] for 25;
+      @p^nodo.ptr^next := 0D;
+      p^nodo.cant^promo := tabla.cant^promo;
+
+      for i := 0 to (tabla.cant^promo -1) do
+         begin
+         p^nodo.promos[i].id^interno := tabla.promos[i].id^interno;
+         p^nodo.promos[i].c^min := tabla.promos[i].c^min;
+         p^nodo.promos[i].c^max := tabla.promos[i].c^max;
+         end;
+
+      end; !de lectura!
+
+   end; !del while!
+
+
+call close(fcb.rut^file^num);
+fcb.rut^file^num := -1;
+
+
+return FALSE; !no problems!
+
+end;
+
+
+
+
+
+
+?section carga^comercio
+?page "carga^comercio"
+!********************************************************************!
+!*                                                                  *!
+!*  Carga un registro del archivo de comercio en memoria            *!
+!*                                                                  *!
+!*  IN   id-comercio: Registro buscado                              *!
+!*                                                                  *!
+!*  OUT  implicito -> en buffer el registro                         *!
+!*       salida:  0 -> encontrado y recuperado.                     *!
+!*                1 -> no encontrado.                               *!
+!*                2 -> problemas.                                   *!
+!*                                                                  *!
+!********************************************************************!
+int proc carga^comercio(id_comercio);
+string  .id_comercio;
+
+begin
+
+int  key^len  := 19,
+     leidos;
+
+comercio[0] ':=' "  " & comercio[0] for 1210 words;
+
+call keyposition(fcb.comercio^file^num, id_comercio, , key^len, 2);
+if <> then
+   begin
+   call fileinfo(fcb.comercio^file^num, leidos);
+   if leidos = 1 then
+      return 1
+   else
+      return 2;
+   end;
+
+call readx(fcb.comercio^file^num, comercio, 2422, leidos);
+if <> then
+   begin
+   call fileinfo(fcb.comercio^file^num, leidos);
+   if leidos = 1 then
+      return 1
+   else
+      return 2;
+   end;
+
+return 0; !no problems!
+end;
+
+
+
+?section carga^tarjeta
+?page "carga^tarjeta"
+!********************************************************************!
+!*                                                                  *!
+!*  Carga un registro del archivo de tarjetas en memoria            *!
+!*                                                                  *!
+!*  IN   id-tarjeta: Registro buscado                               *!
+!*                                                                  *!
+!*  OUT  implicito -> en buffer el registro                         *!
+!*       salida:  0 -> encontrado y recuperado.                     *!
+!*                1 -> no encontrado.                               *!
+!*                2 -> problemas.                                   *!
+!*                                                                  *!
+!********************************************************************!
+int proc carga^tarjeta(id_tarjeta);
+string  .id_tarjeta;
+
+begin
+
+int  key^len  := 19,
+     leidos;
+
+tarjeta[0] ':=' "  " & tarjeta[0] for 410 words;
+
+call keyposition(fcb.tarjeta^file^num, id_tarjeta, , key^len, 2);
+if <> then
+   begin
+   call fileinfo(fcb.tarjeta^file^num, leidos);
+   if leidos = 1 then
+      return 1
+   else
+      return 2;
+   end;
+
+call readx(fcb.tarjeta^file^num, tarjeta, 822, leidos);
+if <> then
+   begin
+   call fileinfo(fcb.tarjeta^file^num, leidos);
+   if leidos = 1 then
+      return 1
+   else
+      return 2;
+   end;
+
+return 0; !no problems!
+end;
+
+
+
+
+
+
+?section pinta
+?page "pinta"
+!*************************************************************************!
+!*                                                                       *!
+!*      Asigna valor (x) a un bit en la posicion (k) de un INT           *!
+!*                                                                       *!
+!*************************************************************************!
+int proc pinta( buf, k, x);
+int .ext buf;
+int  k;
+int  x;
+begin
+
+case k of
+   begin
+   0 ->
+      buf.<0> := x;
+   1 ->
+      buf.<1> := x;
+   2 ->
+      buf.<2> := x;
+   3 ->
+      buf.<3> := x;
+   4 ->
+      buf.<4> := x;
+   5 ->
+      buf.<5> := x;
+   6 ->
+      buf.<6> := x;
+   7 ->
+      buf.<7> := x;
+   8 ->
+      buf.<8> := x;
+   9 ->
+      buf.<9> := x;
+   10 ->
+      buf.<10> := x;
+   11 ->
+      buf.<11> := x;
+   12 ->
+      buf.<12> := x;
+   13 ->
+      buf.<13> := x;
+   14 ->
+      buf.<14> := x;
+   15 ->
+      buf.<15> := x;
+   otherwise ->
+      return false;
+   end;
+
+return true;
+end;
+
+
+
+?section c^rango
+?page "c^rango"
+!*************************************************************************!
+!*                                                                       *!
+!*      compara rango de BITS                                            *!
+!*                                                                       *!
+!*************************************************************************!
+int proc c^rango( buf, k, x);
+int .ext buf;
+int  k;
+int  x;
+begin
+
+int cero := 0;
+
+case x of
+   begin
+   0 ->
+      begin
+      case k of
+         begin
+         0 ->
+            begin
+            cero.<0:0> := buf.<0:0>;
+            if not cero then
+               return TRUE;
+            end;
+         1 ->
+            begin
+            cero.<0:1> := buf.<0:1>;
+            if not cero then
+               return TRUE;
+            end;
+         2 ->
+            begin
+            cero.<0:2> := buf.<0:2>;
+            if not cero then
+               return TRUE;
+            end;
+         3 ->
+            begin
+            cero.<0:3> := buf.<0:3>;
+            if not cero then
+               return TRUE;
+            end;
+         4 ->
+            begin
+            cero.<0:4> := buf.<0:4>;
+            if not cero then
+               return TRUE;
+            end;
+         5 ->
+            begin
+            cero.<0:5> := buf.<0:5>;
+            if not cero then
+               return TRUE;
+            end;
+         6 ->
+            begin
+            cero.<0:6> := buf.<0:6>;
+            if not cero then
+               return TRUE;
+            end;
+         7 ->
+            begin
+            cero.<0:7> := buf.<0:7>;
+            if not cero then
+               return TRUE;
+            end;
+         8 ->
+            begin
+            cero.<0:8> := buf.<0:8>;
+            if not cero then
+               return TRUE;
+            end;
+         9 ->
+            begin
+            cero.<0:9> := buf.<0:9>;
+            if not cero then
+               return TRUE;
+            end;
+         10 ->
+            begin
+            cero.<0:10> := buf.<0:10>;
+            if not cero then
+               return TRUE;
+            end;
+         11 ->
+            begin
+            cero.<0:11> := buf.<0:11>;
+            if not cero then
+               return TRUE;
+            end;
+         12 ->
+            begin
+            cero.<0:12> := buf.<0:12>;
+            if not cero then
+               return TRUE;
+            end;
+         13 ->
+            begin
+            cero.<0:13> := buf.<0:13>;
+            if not cero then
+               return TRUE;
+            end;
+         14 ->
+            begin
+            cero.<0:14> := buf.<0:14>;
+            if not cero then
+               return TRUE;
+            end;
+         15 ->
+            begin
+            cero.<0:15> := buf.<0:15>;
+            if not cero then
+               return TRUE;
+            end;
+         otherwise ->
+            return FALSE;
+         end;
+      end;
+   1 ->
+      begin
+      case k of
+         begin
+         0 ->
+            begin
+            cero.<0:15> := buf.<0:15>;
+            if not cero then
+               return TRUE;
+            end;
+         1 ->
+            begin
+            cero.<1:15> := buf.<1:15>;
+            if not cero then
+               return TRUE;
+            end;
+         2 ->
+            begin
+            cero.<2:15> := buf.<2:15>;
+            if not cero then
+               return TRUE;
+            end;
+         3 ->
+            begin
+            cero.<3:15> := buf.<3:15>;
+            if not cero then
+               return TRUE;
+            end;
+         4 ->
+            begin
+            cero.<4:15> := buf.<4:15>;
+            if not cero then
+               return TRUE;
+            end;
+         5 ->
+            begin
+            cero.<5:15> := buf.<5:15>;
+            if not cero then
+               return TRUE;
+            end;
+         6 ->
+            begin
+            cero.<6:15> := buf.<6:15>;
+            if not cero then
+               return TRUE;
+            end;
+         7 ->
+            begin
+            cero.<7:15> := buf.<7:15>;
+            if not cero then
+               return TRUE;
+            end;
+         8 ->
+            begin
+            cero.<8:15> := buf.<8:15>;
+            if not cero then
+               return TRUE;
+            end;
+         9 ->
+            begin
+            cero.<9:15> := buf.<9:15>;
+            if not cero then
+               return TRUE;
+            end;
+         10 ->
+            begin
+            cero.<10:15> := buf.<10:15>;
+            if not cero then
+               return TRUE;
+            end;
+         11 ->
+            begin
+            cero.<11:15> := buf.<11:15>;
+            if not cero then
+               return TRUE;
+            end;
+         12 ->
+            begin
+            cero.<12:15> := buf.<12:15>;
+            if not cero then
+               return TRUE;
+            end;
+         13 ->
+            begin
+            cero.<13:15> := buf.<13:15>;
+            if not cero then
+               return TRUE;
+            end;
+         14 ->
+            begin
+            cero.<14:15> := buf.<14:15>;
+            if not cero then
+               return TRUE;
+            end;
+         15 ->
+            begin
+            cero.<15:15> := buf.<15:15>;
+            if not cero then
+               return TRUE;
+            end;
+         otherwise ->
+            return FALSE;
+         end;
+
+      end;
+
+   otherwise ->
+      begin
+      return FALSE;
+      end;
+   end;
+
+return FALSE;
+end;
+
+
+
+
+?section valida^bit
+?page "valida^bit"
+!*************************************************************************!
+!*                                                                       *!
+!*      valida un BIT                                                    *!
+!*                                                                       *!
+!*************************************************************************!
+int proc valida^bit( buf, k);
+int .ext buf;
+int  k;
+begin
+
+case k of
+   begin
+   0 ->
+      begin
+      if buf.<0> then
+         return TRUE;
+      end;
+   1 ->
+      begin
+      if buf.<1> then
+         return TRUE;
+      end;
+   2 ->
+      begin
+      if buf.<2> then
+         return TRUE;
+      end;
+   3 ->
+      begin
+      if buf.<3> then
+         return TRUE;
+      end;
+   4 ->
+      begin
+      if buf.<4> then
+         return TRUE;
+      end;
+   5 ->
+      begin
+      if buf.<5> then
+         return TRUE;
+      end;
+   6 ->
+      begin
+      if buf.<6> then
+         return TRUE;
+      end;
+   7 ->
+      begin
+      if buf.<7> then
+         return TRUE;
+      end;
+   8 ->
+      begin
+      if buf.<8> then
+         return TRUE;
+      end;
+   9 ->
+      begin
+      if buf.<9> then
+         return TRUE;
+      end;
+  10 ->
+      begin
+      if buf.<10> then
+         return TRUE;
+      end;
+  11 ->
+      begin
+      if buf.<11> then
+         return TRUE;
+      end;
+  12 ->
+      begin
+      if buf.<12> then
+         return TRUE;
+      end;
+  13 ->
+      begin
+      if buf.<13> then
+         return TRUE;
+      end;
+  14 ->
+      begin
+      if buf.<14> then
+         return TRUE;
+      end;
+  15 ->
+      begin
+      if buf.<15> then
+         return TRUE;
+      end;
+  otherwise ->
+      return FALSE;
+   end;
+end;
+
+
+
+
+
+
+
+?section dealloc_xsegment
+?page "dealloc_xsegment"
+!**********************************************************************!
+!*                                                                    *!
+!*   Procedimiento que destruye memoria reservada                     *!
+!*                                                                    *!
+!**********************************************************************!
+int proc dealloc_xsegment(seg);
+int seg;
+begin
+
+int s := 0,
+    error := 0;
+
+s := segment_deallocate_(seg,,error);
+if s <> 0 then
+   return 1
+else
+   return 0;
+end;
+
+
+
+?section alloc_xsegment
+?page "alloc_xsegment"
+!********************************************************************!
+!*                                                                  *!
+!*  Procedimiento que reserva grandes espacio de meomoria.          *!
+!*  Seran utilizado para construir estructuras dinamicas.           *!
+!*                                                                  *!
+!********************************************************************!
+int  proc alloc_xsegment(seg, largo );
+int     seg;        !segmentos^cntl alterado!
+int(32) largo;      !en bytes!
+
+begin
+int s     := 0,
+    op    := 0,
+    error := 0;
+
+int(32) real^len := 0D;
+
+op ':=' %B0000000001000010;
+s := segment_allocate_(seg,!ID!
+                    largo, !tamaño!
+                         , !filename!
+                    error, !detalle del error!
+                         , !pin!
+                         , !tipo de segmento!
+                         , !direccion!
+                    largo, !tamaño maximo!
+                       op); !opciones!
+
+if s <> 0 then
+   return 0
+else
+   begin
+   s := segment_getinfo_(seg                     , !ID!
+                         real^len                , !SIZE!
+                                                 , !FILENAME!
+                                                 , !FILENAME LEN!
+                         error                   , !ERROR!
+                         @segmentos^cntl[seg].ptr);!BASE ADDRESS!
+   if s = 0 then
+      return 1
+   else
+      begin
+      @segmentos^cntl[seg].ptr := 0D;
+      return 0;
+      end;
+   end;
+end;
+
+
+
+?section crea^espacio
+?page "crea^espacio"
+!******************************************************************!
+!*                                                                *!
+!* crea espacio de memoria dinamica                               *!
+!*                                                                *!
+!******************************************************************!
+int proc crea^espacio(len, dir);
+int(32)  len;
+int(32) .dir;
+
+begin
+
+int error := 0;
+
+dir := -1D;
+dir := pool_getspace_(segmentos^cntl[seg^activos].ptr, !pool!
+                      len                            , !size!
+                      error                         );
+if error = 0 then
+    return TRUE
+else
+   begin
+   if error = 10 then
+      begin
+      if seg^activos = 29 then
+         return FALSE;
+      seg^activos := seg^activos + 1;
+      error := alloc_xsegment(seg^activos,1048576D);
+      if error = 1 then
+         begin
+         error := pool_define_(segmentos^cntl[seg^activos].ptr,
+                               1048576D, 0,);
+         if error <> 0 then
+            return FALSE
+         else
+            begin
+            dir := -1D;
+            dir := pool_getspace_(segmentos^cntl[seg^activos].ptr,
+                                  len , error);
+            if error = 0 then
+               return TRUE
+            else
+               return FALSE;
+            end;
+         end
+      else
+         return FALSE;
+      end
+   else
+      return FALSE;
+   end;
+
+end; !de proc!
+
+
+
+?section H1
+?page "H1"
+!****************************************************************!
+!*                                                              *!
+!*  Funcion de hash utilizada para BIN, RUBRO, RUT.             *!
+!*                                                              *!
+!****************************************************************!
+int proc H1(key, tipo, hash^id);
+string .ext key;
+int         tipo;
+int        .hash^id;
+begin
+
+fixed .ext valor[0:1];
+
+int      len  := 0,
+         base := 0;
+
+
+case tipo of
+   begin
+   1 ->  !BIN!
+      begin
+      base := 809;
+      len  := 11;
+      end;!de 1->!
+   2 ->  !RUBRO!
+      begin
+      base := 599;
+      len  := 3;
+      end;!de 2->!
+   3 ->  !RUT!
+      begin
+      base := 2999;
+      len  := 9;
+      end;!de 3->!
+   otherwise ->
+      begin
+      return FALSE;
+      end;
+   end; !de case!
+
+valor[0] := 0F;
+valor[1] := 0F;
+
+if not ascii^fixedx(key, len, valor[0]) then
+   return FALSE;
+
+valor[1] := valor[0] / $fix(base);
+hash^id := $int(valor[0] - ( valor[1] * $fix(base) ));
+
+return TRUE;
+end; !de proc!
+
+
+
+
+?section H2
+?page "H2"
+!****************************************************************!
+!*                                                              *!
+!*  Funcion de re-hash utilizada para BIN, RUBRO, RUT.          *!
+!*                                                              *!
+!****************************************************************!
+int proc H2(key, tipo, hash^id);
+string .ext key;
+int         tipo;
+int        .hash^id;
+begin
+
+fixed .ext valor[0:1];
+fixed(3) .ext resto[0:0];
+
+int      len  := 0,
+         base := 0,
+         id   := 0;
+
+case tipo of
+   begin
+   1 ->  !BIN!
+      begin
+      base := 11;
+      len  := 11;
+      end;!de 1->!
+   2 ->  !RUBRO!
+      begin
+      base := 11;
+      len  := 3;
+      end;!de 2->!
+   3 ->  !RUT!
+      begin
+      base := 11;
+      len  := 9;
+      end;!de 3->!
+   otherwise ->
+      begin
+      return FALSE;
+      end;
+   end; !de case!
+
+
+valor[0] := 0F;
+valor[1] := 0F;
+resto[0] := 0F;
+
+if not ascii^fixedx(key, len, valor[0]) then
+   return FALSE;
+
+valor[1] := valor[0] * 0.618F;
+resto[0] := valor[0] * 0.618F;
+valor[1] := (((resto[0] - valor[1]) / 1F) * $fix(base));
+hash^id := $int(valor[1]);
+
+return TRUE;
+end; !de proc!
+
+
+?section get^init^params
+?page "***** get^init^params *****"
+!*********************************************************************!
+!*                                                                   *!
+!*                          get^init^params                          *!
+!*                                                                   *!
+!*********************************************************************!
+proc get^init^params;
+
+begin
+literal
+                abort    = 1,
+                no^abort = 0;
+
+struct
+               .lconf( lconf^def );
+
+int
+                buf^len,
+                i,
+                status,
+                error,
+                text^len;
+
+string
+               .buf^s[ 0:79 ],
+               .error^text1[ 0:16 ],
+               .error^text2[ 0:15 ],
+               .text[ 0:79 ];
+
+string
+                base^param^table = 'P' := [
+                    "SERVER-LOTE                     ", no^abort, ! 00!
+                    "SERVER-DELAY                    ", no^abort, ! 01!
+                    "SERVER-TRACE-ON                 ", no^abort, ! 02!
+                                                       0 ];
+
+define
+                base^param^name( index ) =
+                    base^param^table[ ( ( index ) * 33 ) ] #,
+                base^abort^flag( index ) =
+                    base^param^table[ ( ( index ) * 33 ) + 32 ] #;
+
+!*********************************************************************!
+!*                        lconf^read^                                *!
+!*********************************************************************!
+int subproc lconf^read^( abort^run );
+int             abort^run;
+
+begin
+if ( error := lconf^read( fcb.lconf^file^num, lconf,
+                                lconf.prikey,,,,, buf^s,
+                                buf^len ) ) then
+    begin
+    call log^utility(4, true, error);
+    return false;
+    end;
+
+return true;
+end;
+
+lconf.prikey.item^typ ':=' "P";
+lconf.prikey.pro^name ':=' [ $len( lconf.prikey.pro^name )* [ "*" ] ];
+
+i := -1;
+while base^param^name( i := i + 1 ) do
+    begin
+    lconf.prikey.item^name ':=' base^param^name( i ) for
+                              $len( lconf.prikey.item^name );
+    if lconf^read^( base^abort^flag( i ) ) then
+        begin
+        text    ':=' " " & text for 69;
+        text^len :=  lconf.param^msg.plgth;
+        text    ':=' lconf.param^msg.ptxt for text^len;
+        call shiftstring( text, text^len, 0 );
+        case i of
+            begin
+            !00! begin   ! lote !
+                 if not ascii^fixed( text, text^len, lote) then
+                    begin
+                    call log^utility( 4, true);
+                    end;
+                 end;
+            !01! begin   ! delay !
+                 if not ascii^double( text, text^len, tiempo ) then
+                     begin
+                     call log^utility( 4, true);
+                     end;
+                 end;
+            !02! begin   ! TRACE ON!
+                 call remove^blanks( text, text^len );
+                 if text = "Y" then
+                     begin
+                     trace^on := true;
+                     end;
+                 end;
+            !??! otherwise
+                    begin
+                    call log^utility( 4, true);
+                    end;
+            end;
+        end;
+    end;
+end;
