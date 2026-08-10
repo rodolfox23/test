@@ -1,11 +1,5 @@
-Fabricio, con el DDL y lo que me pasaste ya tengo casi todo cerrado.
+Hola a todos. Para ir preparando el pase a producción del jueves 13 de agosto de ADN y Nano, ¿me pueden confirmar qué servicios entrarán en este pase?
 
-Me quedarían solo estas dudas puntuales:
+Por favor, indiquen el servicio y el responsable correspondiente para ir armando el detalle del pase.
 
-1. ¿Cuál es el valor de ID_MESSAGE_CHANNEL para identificar canal POS?
-2. ¿Cuáles son los valores de ID_BRAND para Visa y Mastercard?
-3. Para aplicar el diccionario de tipos, ¿de qué columnas salen N_PRODUCT_TYPE, N_INSTALLMENTS_QUANTITY y S_FINAL_AUTHORIZATION_INDICATOR?
-4. Cuando el batch corra a las 03:00 AM, ¿debe cerrar todas las transacciones abiertas o solo las abiertas hasta una fecha/hora de corte?
-5. ¿CONFIRMATION_DATE debe quedar con la fecha/hora real del batch o con una fecha operativa/contable?
-6. Para el log, ¿creamos una tabla nueva con la misma estructura de PURGE_LOG o reutilizamos PURGE_LOG con TABLE_NAME = 'AU_OPEN_TRANSACTION'?
-7. ¿Cuánto tiempo debe conservarse ese log antes de purgarlo?
+Gracias.
