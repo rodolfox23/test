@@ -2,5 +2,6 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/test/9482_metlifecl_csp_ts_react_home" vcs="Git" />
   </component>
 </project>
