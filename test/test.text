@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { getAxiosInstance } from '@services/axiosInstance';
 import type { AppState } from '@storage/interfaces/types';
 import { useQuery } from '@tanstack/react-query';
@@ -11,6 +12,7 @@ export interface InsuredsBeneficiariesType3Request {
   backendId: string;
   lob: string;
   policy: string;
+  onMarca?: () => void; // mensaje marca cuando 404/400 → sin data
 }
 
 interface NanoType3Response {
@@ -62,6 +64,10 @@ const normalizeBeneficiaries = (
 const NANO_ENDPOINT =
   '/v2/tenants/digital/users/products/insuredsBeneficiaries';
 
+const isEmptyResponse = (data?: InsuredsBeneficiaresType3Response) =>
+  (data?.insureds?.length ?? 0) === 0 &&
+  (data?.beneficiaries?.length ?? 0) === 0;
+
 export const getRRVVInsuredsBeneficiariesType3 = async ({
   appState,
   userId,
@@ -98,13 +104,17 @@ export const getRRVVInsuredsBeneficiariesType3 = async ({
       beneficiaries: normalizeBeneficiaries(rawBeneficiaries),
     };
   } catch (error: any) {
+    // 404/400 = sin data (marca), NO error de UI
     if ([404, 400].includes(error.response?.status)) {
       return {
         insureds: [],
         beneficiaries: [],
       };
+      // ↑ acá termina el "return vacío"
+      // el mensaje de marca NO va aquí (no hay hooks/UI en el servicio)
+      // se dispara en el useEffect del hook ↓
     }
-    
+
     throw error;
   }
 };
@@ -115,8 +125,9 @@ export const useRRVVInsuredsBeneficiariesType3 = ({
   backendId,
   lob,
   policy,
-}: InsuredsBeneficiariesType3Request) =>
-  useQuery<InsuredsBeneficiaresType3Response, Error>({
+  onMarca,
+}: InsuredsBeneficiariesType3Request) => {
+  const query = useQuery<InsuredsBeneficiaresType3Response, Error>({
     queryKey: [
       queryKeys.rrvvInsuredsBeneficiariesType3,
       userId,
@@ -134,3 +145,18 @@ export const useRRVVInsuredsBeneficiariesType3 = ({
       }),
     retry: false,
   });
+
+  // Esto es lo del audio: "después del return vacío" → cuando hay éxito sin data
+  useEffect(() => {
+    if (!query.isSuccess || query.isFetching) return;
+
+    if (isEmptyResponse(query.data)) {
+      onMarca?.(); // reemplaza useError / useAdobeContext si no los tienes
+    }
+  }, [query.isSuccess, query.isFetching, query.data, onMarca]);
+
+  return {
+    ...query,
+    isEmpty: query.isSuccess && isEmptyResponse(query.data),
+  };
+};
