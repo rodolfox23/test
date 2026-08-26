@@ -1,6 +1,163 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project version="4">
-  <component name="ProjectRootManager" version="2" project-jdk-name="openjdk-26" project-jdk-type="JavaSDK">
-    <output url="file://$PROJECT_DIR$/out" />
-  </component>
-</project>
+import { useAdobeAnalytics } from '@hooks/useAdobeAnalytics';
+import { getAxiosInstance } from '@services/axiosInstance';
+import type { AppState } from '@storage/interfaces/types';
+import { useQuery } from '@tanstack/react-query';
+
+import { queryKeys } from '../reactQuery/queryKeys';
+import type { InsuredsBeneficiaresType3Response } from './useRRVVInsuredsBeneficiariesType3.interface';
+
+export interface InsuredsBeneficiariesType3Request {
+  appState: AppState;
+  userId: string;
+  backendId: string;
+  lob: string;
+  policy: string;
+}
+
+type RegisterErrorData = (
+  title: string,
+  code: string | number,
+  data: string,
+  description?: string,
+) => void;
+
+interface GetInsuredsBeneficiariesType3Request
+  extends InsuredsBeneficiariesType3Request {
+  registerErrorData?: RegisterErrorData;
+}
+
+interface NanoType3Response {
+  Data?: {
+    insureds?: unknown[];
+    beneficiaries?: unknown[];
+  };
+  item?: {
+    insureds?: unknown[];
+    beneficiaries?: unknown[];
+  };
+  insureds?: unknown[];
+  beneficiaries?: unknown[];
+}
+
+const normalizeBeneficiaries = (
+  beneficiaries: unknown[] | undefined,
+): InsuredsBeneficiaresType3Response['beneficiaries'] => {
+  if (!beneficiaries || beneficiaries.length === 0) {
+    return [];
+  }
+
+  return beneficiaries.map((entry, index) => {
+    const source = (entry ?? {}) as Record<string, unknown>;
+
+    return {
+      type: String(source.type ?? ''),
+      name: String(source.name ?? ''),
+      beneficiarieRut: String(
+        source.beneficiarieRut ?? source.rut ?? source.rutNumber ?? '',
+      ),
+      relationship: String(source.relationship ?? ''),
+      percentageOfAllocation: String(source.percentageOfAllocation ?? ''),
+      phone:
+        source.phone === undefined ? null : (source.phone as string | null),
+      address:
+        source.address === undefined ? null : (source.address as string | null),
+      email:
+        source.email === undefined ? null : (source.email as string | null),
+      gender: String(source.gender ?? ''),
+      number: Number(source.number ?? index + 1),
+      birthdate: String(source.birthdate ?? ''),
+      status: String(source.status ?? ''),
+      disability: String(source.disability ?? ''),
+    };
+  });
+};
+
+const NANO_ENDPOINT =
+  '/v2/tenants/digital/users/products/insuredsBeneficiaries';
+
+const TYPE3_ERROR_TITLE =
+  '[CSP - RRVV] Call InsuredsBeneficiaries Type3 Fail';
+
+export const getRRVVInsuredsBeneficiariesType3 = async ({
+  appState,
+  userId,
+  backendId,
+  lob,
+  policy,
+  registerErrorData,
+}: GetInsuredsBeneficiariesType3Request): Promise<InsuredsBeneficiaresType3Response> => {
+  try {
+    const { data } = await getAxiosInstance(appState).get<NanoType3Response>(
+      NANO_ENDPOINT,
+      {
+        params: {
+          type: 3,
+        },
+        headers: {
+          rut: userId,
+          backendId,
+          lineOfBusiness: lob,
+          policyNumber: policy,
+        },
+      },
+    );
+
+    const insureds =
+      data.Data?.insureds ?? data.item?.insureds ?? data.insureds ?? [];
+    const rawBeneficiaries =
+      data.Data?.beneficiaries ??
+      data.item?.beneficiaries ??
+      data.beneficiaries ??
+      [];
+
+    return {
+      insureds,
+      beneficiaries: normalizeBeneficiaries(rawBeneficiaries),
+    };
+  } catch (error: any) {
+    if ([404, 400].includes(error.response?.status)) {
+      return {
+        insureds: [],
+        beneficiaries: [],
+      };
+    }
+
+    registerErrorData?.(
+      TYPE3_ERROR_TITLE,
+      error.response?.status ?? '500',
+      `Catch: ${error}`,
+    );
+
+    throw error;
+  }
+};
+
+export const useRRVVInsuredsBeneficiariesType3 = ({
+  appState,
+  userId,
+  backendId,
+  lob,
+  policy,
+}: InsuredsBeneficiariesType3Request) => {
+  const { registerErrorData } = useAdobeAnalytics();
+
+  return useQuery<InsuredsBeneficiaresType3Response, Error>({
+    queryKey: [
+      queryKeys.rrvvInsuredsBeneficiariesType3,
+      userId,
+      backendId,
+      lob,
+      policy,
+    ],
+    queryFn: () =>
+      getRRVVInsuredsBeneficiariesType3({
+        appState,
+        userId,
+        backendId,
+        lob,
+        policy,
+        registerErrorData,
+      }),
+    retry: false,
+  });
+};
