@@ -1,162 +1,26 @@
-import { useEffect } from 'react';
-import { getAxiosInstance } from '@services/axiosInstance';
-import type { AppState } from '@storage/interfaces/types';
-import { useQuery } from '@tanstack/react-query';
-
-import { queryKeys } from '../reactQuery/queryKeys';
-import type { InsuredsBeneficiaresType3Response } from './useRRVVInsuredsBeneficiariesType3.interface';
-
-export interface InsuredsBeneficiariesType3Request {
-  appState: AppState;
-  userId: string;
-  backendId: string;
-  lob: string;
-  policy: string;
-  onMarca?: () => void; // mensaje marca cuando 404/400 → sin data
-}
-
-interface NanoType3Response {
-  Data?: {
-    insureds?: unknown[];
-    beneficiaries?: unknown[];
-  };
-  item?: {
-    insureds?: unknown[];
-    beneficiaries?: unknown[];
-  };
-  insureds?: unknown[];
-  beneficiaries?: unknown[];
-}
-
-const normalizeBeneficiaries = (
-  beneficiaries: unknown[] | undefined,
-): InsuredsBeneficiaresType3Response['beneficiaries'] => {
-  if (!beneficiaries || beneficiaries.length === 0) {
-    return [];
-  }
-
-  return beneficiaries.map((entry, index) => {
-    const source = (entry ?? {}) as Record<string, unknown>;
-
-    return {
-      type: String(source.type ?? ''),
-      name: String(source.name ?? ''),
-      beneficiarieRut: String(
-        source.beneficiarieRut ?? source.rut ?? source.rutNumber ?? '',
-      ),
-      relationship: String(source.relationship ?? ''),
-      percentageOfAllocation: String(source.percentageOfAllocation ?? ''),
-      phone:
-        source.phone === undefined ? null : (source.phone as string | null),
-      address:
-        source.address === undefined ? null : (source.address as string | null),
-      email:
-        source.email === undefined ? null : (source.email as string | null),
-      gender: String(source.gender ?? ''),
-      number: Number(source.number ?? index + 1),
-      birthdate: String(source.birthdate ?? ''),
-      status: String(source.status ?? ''),
-      disability: String(source.disability ?? ''),
-    };
-  });
-};
-
-const NANO_ENDPOINT =
-  '/v2/tenants/digital/users/products/insuredsBeneficiaries';
-
-const isEmptyResponse = (data?: InsuredsBeneficiaresType3Response) =>
-  (data?.insureds?.length ?? 0) === 0 &&
-  (data?.beneficiaries?.length ?? 0) === 0;
-
-export const getRRVVInsuredsBeneficiariesType3 = async ({
-  appState,
-  userId,
-  backendId,
-  lob,
-  policy,
-}: InsuredsBeneficiariesType3Request): Promise<InsuredsBeneficiaresType3Response> => {
-  try {
-    const { data } = await getAxiosInstance(appState).get<NanoType3Response>(
-      NANO_ENDPOINT,
-      {
-        params: {
-          type: 3,
-        },
-        headers: {
-          rut: userId,
-          backendId,
-          lineOfBusiness: lob,
-          policyNumber: policy,
-        },
-      },
-    );
-
-    const insureds =
-      data.Data?.insureds ?? data.item?.insureds ?? data.insureds ?? [];
-    const rawBeneficiaries =
-      data.Data?.beneficiaries ??
-      data.item?.beneficiaries ??
-      data.beneficiaries ??
-      [];
-
-    return {
-      insureds,
-      beneficiaries: normalizeBeneficiaries(rawBeneficiaries),
-    };
-  } catch (error: any) {
-    // 404/400 = sin data (marca), NO error de UI
-    if ([404, 400].includes(error.response?.status)) {
-      return {
-        insureds: [],
-        beneficiaries: [],
-      };
-      // ↑ acá termina el "return vacío"
-      // el mensaje de marca NO va aquí (no hay hooks/UI en el servicio)
-      // se dispara en el useEffect del hook ↓
-    }
-
-    throw error;
-  }
-};
-
-export const useRRVVInsuredsBeneficiariesType3 = ({
-  appState,
-  userId,
-  backendId,
-  lob,
-  policy,
-  onMarca,
-}: InsuredsBeneficiariesType3Request) => {
-  const query = useQuery<InsuredsBeneficiaresType3Response, Error>({
-    queryKey: [
-      queryKeys.rrvvInsuredsBeneficiariesType3,
-      userId,
-      backendId,
-      lob,
-      policy,
-    ],
-    queryFn: () =>
-      getRRVVInsuredsBeneficiariesType3({
-        appState,
-        userId,
-        backendId,
-        lob,
-        policy,
-      }),
-    retry: false,
-  });
-
-  // Esto es lo del audio: "después del return vacío" → cuando hay éxito sin data
-  useEffect(() => {
-    if (!query.isSuccess || query.isFetching) return;
-
-    if (isEmptyResponse(query.data)) {
-      onMarca?.(); // reemplaza useError / useAdobeContext si no los tienes
-    }
-  }, [query.isSuccess, query.isFetching, query.data, onMarca]);
-
-  return {
-    ...query,
-    isEmpty: query.isSuccess && isEmptyResponse(query.data),
-  };
-};
+ 10 files changed, 764 insertions(+), 1 deletion(-)
+ delete mode 160000 test/9482_metlifecl_csp_ts_react_home
+ create mode 100644 test/useRRVVInsuredsBeneficiaries/useRRVVInsuredsBeneficiariesType1.interface.ts
+ create mode 100644 test/useRRVVInsuredsBeneficiaries/useRRVVInsuredsBeneficiariesType1.test.tsx
+ create mode 100644 test/useRRVVInsuredsBeneficiaries/useRRVVInsuredsBeneficiariesType1.ts
+ create mode 100644 test/useRRVVInsuredsBeneficiaries/useRRVVInsuredsBeneficiariesType2.interface.ts
+ create mode 100644 test/useRRVVInsuredsBeneficiaries/useRRVVInsuredsBeneficiariesType2.test.tsx
+ create mode 100644 test/useRRVVInsuredsBeneficiaries/useRRVVInsuredsBeneficiariesType2.ts
+ create mode 100644 test/useRRVVInsuredsBeneficiaries/useRRVVInsuredsBeneficiariesType3.interface.ts
+ create mode 100644 test/useRRVVInsuredsBeneficiaries/useRRVVInsuredsBeneficiariesType3.test.tsx
+ create mode 100644 test/useRRVVInsuredsBeneficiaries/useRRVVInsuredsBeneficiariesType3.ts
+PS C:\Users\figueroar1\IdeaProjects\test> git push                                              
+Enumerating objects: 21, done.
+Counting objects: 100% (21/21), done.
+Delta compression using up to 14 threads
+Compressing objects: 100% (19/19), done.
+Writing objects: 100% (19/19), 228.07 MiB | 8.49 MiB/s, done.
+Total 19 (delta 5), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (5/5), completed with 1 local object.
+remote: error: Trace: ddd0d322b0cf037bfb9dde4288df1296da820550628cded1711fe509c63b0978
+remote: error: See https://gh.io/lfs for more information.
+remote: error: File 9482_metlifecl_csp_ts_react_home.zip is 241.62 MB; this exceeds GitHub's file size limit of 100.00 MB
+remote: error: GH001: Large files detected. You may want to try Git Large File Storage - https://git-lfs.github.com.
+To https://github.com/rodolfox23/test.git
+ ! [remote rejected] main -> main (pre-receive hook declined)
+error: failed to push some refs to 'https://github.com/rodolfox23/test.git'
