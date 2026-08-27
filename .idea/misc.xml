@@ -1,148 +1,291 @@
 import { useAdobeAnalytics } from '@hooks/useAdobeAnalytics';
 import { Card } from '@metlife-csp/react';
-import type { PolicyInformation } from '@services/usePolicyInformation/usePolicyInformation.model';
-import type { PaymentScheduleV2Item } from '@services/usePolicyInformation/usePolicyInformation.ts';
-import { useEffect, useRef } from 'react';
+import type { CreditInformation } from '@services/useRRVVCreditInformation/useRRVVCreditInformation.interface';
+import { formatCurrencyCLP } from '@utilities/shared-utils';
+import { useEffect } from 'react';
+import SectionError from '../../../SectionError';
 import SummaryTooltip from '../../../SummaryTooltip';
-import { formatDate, formatPensionAmount, formatPersonName } from '../helpers';
-
-const isMissing = (value: string) => !value || value === '--' || value === '-';
+import {
+  formatDate,
+  formatPersonName,
+  formatValue,
+  isMissing,
+} from '../../MiPension/helpers';
+import CreditDetailTitle from './CreditDetailTitle';
 
 const FIELD_LABELS = {
-  policy: 'Póliza',
-  pensioner: 'Pensionado',
-  grossPension: 'Pensión bruta',
-  startValidity: 'Inicio de vigencia',
-  mode: 'Modalidad',
+  monthlyFee: 'Cuota mensual',
+  lifeInsurance: 'Seguro de desgravamen',
+  totalDiscount: 'Total a descontar',
+  nextDiscount: 'Próximo descuento',
+  outstandingDebt: 'Deuda pendiente',
+  branch: 'Sucursal de solicitud',
+  originationDate: 'Fecha de otorgamiento',
+  term: 'Plazo',
+  grantedCredit: 'Crédito otorgado',
+  interestRate: 'Tasa de interés',
+  installments: 'Número de cuotas',
 } as const;
 
 type FieldLabel = (typeof FIELD_LABELS)[keyof typeof FIELD_LABELS];
 
-interface PolicyCardProps {
-  agreementNumber: string;
-  policyInformation?: PolicyInformation;
+interface CreditProps {
+  creditInformation: CreditInformation | undefined | null;
+  currentInstallment: number | null;
+  isErrorCredit: boolean;
+  hasCredit: boolean;
   isMobileView: boolean;
-  paymentScheduleData?: PaymentScheduleV2Item;
-  modePension: {
-    name: string;
-    time?: string;
-  };
 }
 
-const PolicyCard = ({
-  agreementNumber,
-  policyInformation,
-  modePension,
+const Credit = ({
+  creditInformation,
+  currentInstallment,
+  isErrorCredit,
+  hasCredit,
   isMobileView,
-  paymentScheduleData,
-}: PolicyCardProps) => {
+}: CreditProps) => {
   const { registerErrorData } = useAdobeAnalytics();
-  const hasReportedRef = useRef(false);
 
   useEffect(() => {
-    const missing = [
-      !agreementNumber ? FIELD_LABELS.policy : null,
-      isMissing(formatPersonName(policyInformation?.nameContracting))
-        ? FIELD_LABELS.pensioner
-        : null,
-      isMissing(formatPensionAmount(policyInformation?.amountPensionUF))
-        ? FIELD_LABELS.grossPension
-        : null,
-      isMissing(formatDate(paymentScheduleData?.startValidityDate))
-        ? FIELD_LABELS.startValidity
-        : null,
-      isMissing(modePension.name) ? FIELD_LABELS.mode : null,
-    ].filter((field): field is FieldLabel => field !== null);
+    if (creditInformation === null) return;
 
-    if (missing.length === 0) {
-      hasReportedRef.current = false;
+    if (isErrorCredit) {
+      registerErrorData(
+        'error de servicio - algunos de nuestros servicios no estan disponibles en estos momentos',
+        '500',
+        `Credito:${creditInformation?.creditNumber ?? ''}`,
+        'No se muestra informacion en el modulo Mis créditos',
+      );
       return;
     }
 
-    if (hasReportedRef.current) return;
-    hasReportedRef.current = true;
+    if (!hasCredit) return;
+
+    const missing = [
+      isMissing(creditInformation?.installmentAmount)
+        ? FIELD_LABELS.monthlyFee
+        : null,
+      isMissing(creditInformation?.lifeInsuranceInstallmentAmount)
+        ? FIELD_LABELS.lifeInsurance
+        : null,
+      isMissing(creditInformation?.totalInstallmentAmount)
+        ? FIELD_LABELS.totalDiscount
+        : null,
+      isMissing(formatDate(creditInformation?.nextDueDate))
+        ? FIELD_LABELS.nextDiscount
+        : null,
+      isMissing(creditInformation?.outstandingBalance)
+        ? FIELD_LABELS.outstandingDebt
+        : null,
+      isMissing(formatPersonName(creditInformation?.branch))
+        ? FIELD_LABELS.branch
+        : null,
+      isMissing(formatDate(creditInformation?.loanOriginationDate))
+        ? FIELD_LABELS.originationDate
+        : null,
+      isMissing(formatValue(creditInformation?.term))
+        ? FIELD_LABELS.term
+        : null,
+      isMissing(creditInformation?.totalFinancedAmount)
+        ? FIELD_LABELS.grantedCredit
+        : null,
+      isMissing(formatValue(creditInformation?.interestRate))
+        ? FIELD_LABELS.interestRate
+        : null,
+      isMissing(formatValue(creditInformation?.totalInstallments))
+        ? FIELD_LABELS.installments
+        : null,
+    ].filter((field): field is FieldLabel => field !== null);
+
+    if (missing.length === 0) return;
+
     registerErrorData(
       'error de carga de Datos',
       '404',
       `No se muestra el componente ${missing.join(', ')}`,
     );
-  }, [
-    agreementNumber,
-    policyInformation?.nameContracting,
-    policyInformation?.amountPensionUF,
-    paymentScheduleData?.startValidityDate,
-    modePension.name,
-    registerErrorData,
-  ]);
+  }, [creditInformation, isErrorCredit, hasCredit, registerErrorData]);
 
+  if (creditInformation === null) {
+    return null;
+  }
   return (
-    <Card>
-      <div className="rrvv-mi-pension__summary">
-        <div className="rrvv-mi-pension__summary-column">
-          <div className="rrvv-mi-pension__summary-item">
-            <span className="rrvv-mi-pension__summary-label">
-              {FIELD_LABELS.policy}
-            </span>
-            <span className="rrvv-mi-pension__summary-value">
-              {agreementNumber || '--'}
-            </span>
+    <>
+      {isErrorCredit && hasCredit && (
+        <Card>
+          <div className="rrvv-mis-creditos__detail">
+            <CreditDetailTitle creditNumber={creditInformation?.creditNumber} />
+            <div className="rrvv-mis-creditos__summary">
+              <SectionError />
+            </div>
           </div>
-          <div className="rrvv-mi-pension__summary-item">
-            <span className="rrvv-mi-pension__summary-label">
-              {FIELD_LABELS.pensioner}
-            </span>
-            <span className="rrvv-mi-pension__summary-value">
-              {formatPersonName(policyInformation?.nameContracting)}
-            </span>
-          </div>
-          <div className="rrvv-mi-pension__summary-item">
-            <span className="rrvv-mi-pension__summary-label">
-              {FIELD_LABELS.grossPension}
-              <SummaryTooltip
-                id="rrvv-tooltip-pension-bruta"
-                label={FIELD_LABELS.grossPension}
-                textContent="Es el monto sin los descuentos legales."
-                positionArrow={isMobileView ? 'center' : 'left'}
-              />
-            </span>
-            <span className="rrvv-mi-pension__summary-value">
-              {formatPensionAmount(policyInformation?.amountPensionUF)}
-            </span>
-          </div>
-        </div>
-        {!isMobileView && (
-          <>
-            <div className="rrvv-mi-pension__summary-divider" />
+        </Card>
+      )}
 
-            <div className="rrvv-mi-pension__summary-column">
-              <div className="rrvv-mi-pension__summary-item">
-                <span className="rrvv-mi-pension__summary-label">
-                  {FIELD_LABELS.startValidity}
-                </span>
-                <span className="rrvv-mi-pension__summary-value">
-                  {formatDate(paymentScheduleData?.startValidityDate)}
-                </span>
+      {isErrorCredit && !hasCredit && (
+        <Card>
+          <div
+            className="rrvv-mis-creditos__detail"
+            data-testid="rrvv-mis-creditos-empty"
+          >
+            <CreditDetailTitle creditNumber={creditInformation?.creditNumber} />
+            <SectionError />
+          </div>
+        </Card>
+      )}
+
+      {!isErrorCredit && hasCredit && (
+        <Card>
+          <div className="rrvv-mis-creditos__detail">
+            <CreditDetailTitle creditNumber={creditInformation?.creditNumber} />
+
+            <div className="rrvv-mis-creditos__summary">
+              <div className="rrvv-mis-creditos__fee-box">
+                <div className="rrvv-mis-creditos__fee-row">
+                  <span className="rrvv-mis-creditos__label">
+                    {FIELD_LABELS.monthlyFee}
+                    {currentInstallment !== null && (
+                      <span className="rrvv-mis-creditos__fee-installment">
+                        {' '}
+                        ({currentInstallment}/
+                        {formatValue(creditInformation?.totalInstallments)})
+                      </span>
+                    )}
+                  </span>
+                  <span className="rrvv-mis-creditos__label">
+                    {formatCurrencyCLP(creditInformation?.installmentAmount)}
+                  </span>
+                </div>
+
+                <div className="rrvv-mis-creditos__fee-row">
+                  <span className="rrvv-mis-creditos__label">
+                    {FIELD_LABELS.lifeInsurance}
+                  </span>
+                  <span className="rrvv-mis-creditos__label">
+                    {formatCurrencyCLP(
+                      creditInformation?.lifeInsuranceInstallmentAmount,
+                    )}
+                  </span>
+                </div>
+
+                <div className="rrvv-mis-creditos__fee-divider" />
+
+                <div className="rrvv-mis-creditos__fee-row rrvv-mis-creditos__fee-row--total">
+                  <div className="rrvv-mis-creditos__fee-row-labels">
+                    <span className="rrvv-mis-creditos__label-bold">
+                      {FIELD_LABELS.totalDiscount}
+                    </span>
+                    <span className="rrvv-mis-creditos__label-small">
+                      Desde tu próxima pensión
+                    </span>
+                  </div>
+                  <span className="rrvv-mis-creditos__label rrvv-mis-creditos__label--total">
+                    {formatCurrencyCLP(
+                      creditInformation?.totalInstallmentAmount,
+                    )}
+                  </span>
+                </div>
               </div>
-              <div className="rrvv-mi-pension__summary-item">
-                <span className="rrvv-mi-pension__summary-label">
-                  {FIELD_LABELS.mode}
-                  <SummaryTooltip
-                    id="rrvv-tooltip-modalidad"
-                    label="Modalidades"
-                    textContent="Puede ser inmediata, diferida o con retiro programado donde comenzarás a recibir tu pensión."
-                  />
-                </span>
-                <span className="rrvv-mi-pension__summary-value">
-                  {modePension.name}
-                  {modePension.time ? ` (${modePension.time} meses)` : ''}
-                </span>
+
+              <div className="rrvv-mis-creditos__info-box">
+                <div className="rrvv-mis-creditos__info-row">
+                  <span className="rrvv-mis-creditos__label-bold">
+                    {FIELD_LABELS.nextDiscount}
+                  </span>
+                  <span className="rrvv-mis-creditos__label">
+                    {formatDate(creditInformation?.nextDueDate)}
+                  </span>
+                </div>
+                <div className="rrvv-mis-creditos__info-row">
+                  <span className="rrvv-mis-creditos__label-bold rrvv-mis-creditos__label-with-tooltip">
+                    {FIELD_LABELS.outstandingDebt}
+                    <SummaryTooltip
+                      id="rrvv-tooltip-deuda-pendiente"
+                      label={FIELD_LABELS.outstandingDebt}
+                      textContent="Es el saldo restante para finalizar el pago total de tu crédito"
+                      positionArrow={isMobileView ? 'center' : 'left'}
+                    />
+                  </span>
+                  <span className="rrvv-mis-creditos__label">
+                    {formatCurrencyCLP(creditInformation?.outstandingBalance)}
+                  </span>
+                </div>
               </div>
             </div>
-          </>
-        )}
-      </div>
-    </Card>
+
+            {!isMobileView && (
+              <>
+                <div className="rrvv-mis-creditos__divider" />
+
+                <span className="rrvv-mis-creditos__detail-title-bold">
+                  Condiciones de otorgamiento
+                </span>
+
+                <div className="rrvv-mis-creditos__conditions">
+                  <div className="rrvv-mis-creditos__conditions-box">
+                    <div className="rrvv-mis-creditos__info-row">
+                      <span className="rrvv-mis-creditos__label-bold">
+                        {FIELD_LABELS.branch}
+                      </span>
+                      <span className="rrvv-mis-creditos__label">
+                        {formatPersonName(creditInformation?.branch)}
+                      </span>
+                    </div>
+                    <div className="rrvv-mis-creditos__info-row">
+                      <span className="rrvv-mis-creditos__label-bold">
+                        {FIELD_LABELS.originationDate}
+                      </span>
+                      <span className="rrvv-mis-creditos__label">
+                        {formatDate(creditInformation?.loanOriginationDate)}
+                      </span>
+                    </div>
+                    <div className="rrvv-mis-creditos__info-row">
+                      <span className="rrvv-mis-creditos__label-bold">
+                        {FIELD_LABELS.term}
+                      </span>
+                      <span className="rrvv-mis-creditos__label">
+                        {formatValue(creditInformation?.term)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="rrvv-mis-creditos__conditions-divider" />
+                  <div className="rrvv-mis-creditos__conditions-box">
+                    <div className="rrvv-mis-creditos__info-row">
+                      <span className="rrvv-mis-creditos__label-bold">
+                        {FIELD_LABELS.grantedCredit}
+                      </span>
+                      <span className="rrvv-mis-creditos__label">
+                        {formatCurrencyCLP(
+                          creditInformation?.totalFinancedAmount,
+                        )}
+                      </span>
+                    </div>
+                    <div className="rrvv-mis-creditos__info-row">
+                      <span className="rrvv-mis-creditos__label-bold">
+                        {FIELD_LABELS.interestRate}
+                      </span>
+                      <span className="rrvv-mis-creditos__label">
+                        {formatValue(creditInformation?.interestRate)}
+                      </span>
+                    </div>
+                    <div className="rrvv-mis-creditos__info-row">
+                      <span className="rrvv-mis-creditos__label-bold">
+                        {FIELD_LABELS.installments}
+                      </span>
+                      <span className="rrvv-mis-creditos__label">
+                        {formatValue(creditInformation?.totalInstallments)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </Card>
+      )}
+    </>
   );
 };
 
-export default PolicyCard;
+export default Credit;
