@@ -1,291 +1,85 @@
-import { useAdobeAnalytics } from '@hooks/useAdobeAnalytics';
-import { Card } from '@metlife-csp/react';
-import type { CreditInformation } from '@services/useRRVVCreditInformation/useRRVVCreditInformation.interface';
-import { formatCurrencyCLP } from '@utilities/shared-utils';
-import { useEffect } from 'react';
-import SectionError from '../../../SectionError';
-import SummaryTooltip from '../../../SummaryTooltip';
-import {
-  formatDate,
-  formatPersonName,
-  formatValue,
-  isMissing,
-} from '../../MiPension/helpers';
-import CreditDetailTitle from './CreditDetailTitle';
-
-const FIELD_LABELS = {
-  monthlyFee: 'Cuota mensual',
-  lifeInsurance: 'Seguro de desgravamen',
-  totalDiscount: 'Total a descontar',
-  nextDiscount: 'Próximo descuento',
-  outstandingDebt: 'Deuda pendiente',
-  branch: 'Sucursal de solicitud',
-  originationDate: 'Fecha de otorgamiento',
-  term: 'Plazo',
-  grantedCredit: 'Crédito otorgado',
-  interestRate: 'Tasa de interés',
-  installments: 'Número de cuotas',
-} as const;
-
-type FieldLabel = (typeof FIELD_LABELS)[keyof typeof FIELD_LABELS];
-
-interface CreditProps {
-  creditInformation: CreditInformation | undefined | null;
-  currentInstallment: number | null;
-  isErrorCredit: boolean;
-  hasCredit: boolean;
-  isMobileView: boolean;
-}
-
-const Credit = ({
-  creditInformation,
-  currentInstallment,
-  isErrorCredit,
-  hasCredit,
-  isMobileView,
-}: CreditProps) => {
-  const { registerErrorData } = useAdobeAnalytics();
-
-  useEffect(() => {
-    if (creditInformation === null) return;
-
-    if (isErrorCredit) {
-      registerErrorData(
-        'error de servicio - algunos de nuestros servicios no estan disponibles en estos momentos',
-        '500',
-        `Credito:${creditInformation?.creditNumber ?? ''}`,
-        'No se muestra informacion en el modulo Mis créditos',
-      );
-      return;
-    }
-
-    if (!hasCredit) return;
-
-    const missing = [
-      isMissing(creditInformation?.installmentAmount)
-        ? FIELD_LABELS.monthlyFee
-        : null,
-      isMissing(creditInformation?.lifeInsuranceInstallmentAmount)
-        ? FIELD_LABELS.lifeInsurance
-        : null,
-      isMissing(creditInformation?.totalInstallmentAmount)
-        ? FIELD_LABELS.totalDiscount
-        : null,
-      isMissing(formatDate(creditInformation?.nextDueDate))
-        ? FIELD_LABELS.nextDiscount
-        : null,
-      isMissing(creditInformation?.outstandingBalance)
-        ? FIELD_LABELS.outstandingDebt
-        : null,
-      isMissing(formatPersonName(creditInformation?.branch))
-        ? FIELD_LABELS.branch
-        : null,
-      isMissing(formatDate(creditInformation?.loanOriginationDate))
-        ? FIELD_LABELS.originationDate
-        : null,
-      isMissing(formatValue(creditInformation?.term))
-        ? FIELD_LABELS.term
-        : null,
-      isMissing(creditInformation?.totalFinancedAmount)
-        ? FIELD_LABELS.grantedCredit
-        : null,
-      isMissing(formatValue(creditInformation?.interestRate))
-        ? FIELD_LABELS.interestRate
-        : null,
-      isMissing(formatValue(creditInformation?.totalInstallments))
-        ? FIELD_LABELS.installments
-        : null,
-    ].filter((field): field is FieldLabel => field !== null);
-
-    if (missing.length === 0) return;
-
-    registerErrorData(
-      'error de carga de Datos',
-      '404',
-      `No se muestra el componente ${missing.join(', ')}`,
-    );
-  }, [creditInformation, isErrorCredit, hasCredit, registerErrorData]);
-
-  if (creditInformation === null) {
+export const parsePaymentDate = (
+  value: string | null | undefined,
+): Date | null => {
+  if (!value) {
     return null;
   }
-  return (
-    <>
-      {isErrorCredit && hasCredit && (
-        <Card>
-          <div className="rrvv-mis-creditos__detail">
-            <CreditDetailTitle creditNumber={creditInformation?.creditNumber} />
-            <div className="rrvv-mis-creditos__summary">
-              <SectionError />
-            </div>
-          </div>
-        </Card>
-      )}
 
-      {isErrorCredit && !hasCredit && (
-        <Card>
-          <div
-            className="rrvv-mis-creditos__detail"
-            data-testid="rrvv-mis-creditos-empty"
-          >
-            <CreditDetailTitle creditNumber={creditInformation?.creditNumber} />
-            <SectionError />
-          </div>
-        </Card>
-      )}
+  const parts = value.split('-');
+  if (parts.length !== 3) {
+    return null;
+  }
 
-      {!isErrorCredit && hasCredit && (
-        <Card>
-          <div className="rrvv-mis-creditos__detail">
-            <CreditDetailTitle creditNumber={creditInformation?.creditNumber} />
+  const [first, month, last] = parts;
+  const [year, day] = first.length === 4 ? [first, last] : [last, first];
+  const parsed = new Date(Number(year), Number(month) - 1, Number(day));
 
-            <div className="rrvv-mis-creditos__summary">
-              <div className="rrvv-mis-creditos__fee-box">
-                <div className="rrvv-mis-creditos__fee-row">
-                  <span className="rrvv-mis-creditos__label">
-                    {FIELD_LABELS.monthlyFee}
-                    {currentInstallment !== null && (
-                      <span className="rrvv-mis-creditos__fee-installment">
-                        {' '}
-                        ({currentInstallment}/
-                        {formatValue(creditInformation?.totalInstallments)})
-                      </span>
-                    )}
-                  </span>
-                  <span className="rrvv-mis-creditos__label">
-                    {formatCurrencyCLP(creditInformation?.installmentAmount)}
-                  </span>
-                </div>
-
-                <div className="rrvv-mis-creditos__fee-row">
-                  <span className="rrvv-mis-creditos__label">
-                    {FIELD_LABELS.lifeInsurance}
-                  </span>
-                  <span className="rrvv-mis-creditos__label">
-                    {formatCurrencyCLP(
-                      creditInformation?.lifeInsuranceInstallmentAmount,
-                    )}
-                  </span>
-                </div>
-
-                <div className="rrvv-mis-creditos__fee-divider" />
-
-                <div className="rrvv-mis-creditos__fee-row rrvv-mis-creditos__fee-row--total">
-                  <div className="rrvv-mis-creditos__fee-row-labels">
-                    <span className="rrvv-mis-creditos__label-bold">
-                      {FIELD_LABELS.totalDiscount}
-                    </span>
-                    <span className="rrvv-mis-creditos__label-small">
-                      Desde tu próxima pensión
-                    </span>
-                  </div>
-                  <span className="rrvv-mis-creditos__label rrvv-mis-creditos__label--total">
-                    {formatCurrencyCLP(
-                      creditInformation?.totalInstallmentAmount,
-                    )}
-                  </span>
-                </div>
-              </div>
-
-              <div className="rrvv-mis-creditos__info-box">
-                <div className="rrvv-mis-creditos__info-row">
-                  <span className="rrvv-mis-creditos__label-bold">
-                    {FIELD_LABELS.nextDiscount}
-                  </span>
-                  <span className="rrvv-mis-creditos__label">
-                    {formatDate(creditInformation?.nextDueDate)}
-                  </span>
-                </div>
-                <div className="rrvv-mis-creditos__info-row">
-                  <span className="rrvv-mis-creditos__label-bold rrvv-mis-creditos__label-with-tooltip">
-                    {FIELD_LABELS.outstandingDebt}
-                    <SummaryTooltip
-                      id="rrvv-tooltip-deuda-pendiente"
-                      label={FIELD_LABELS.outstandingDebt}
-                      textContent="Es el saldo restante para finalizar el pago total de tu crédito"
-                      positionArrow={isMobileView ? 'center' : 'left'}
-                    />
-                  </span>
-                  <span className="rrvv-mis-creditos__label">
-                    {formatCurrencyCLP(creditInformation?.outstandingBalance)}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {!isMobileView && (
-              <>
-                <div className="rrvv-mis-creditos__divider" />
-
-                <span className="rrvv-mis-creditos__detail-title-bold">
-                  Condiciones de otorgamiento
-                </span>
-
-                <div className="rrvv-mis-creditos__conditions">
-                  <div className="rrvv-mis-creditos__conditions-box">
-                    <div className="rrvv-mis-creditos__info-row">
-                      <span className="rrvv-mis-creditos__label-bold">
-                        {FIELD_LABELS.branch}
-                      </span>
-                      <span className="rrvv-mis-creditos__label">
-                        {formatPersonName(creditInformation?.branch)}
-                      </span>
-                    </div>
-                    <div className="rrvv-mis-creditos__info-row">
-                      <span className="rrvv-mis-creditos__label-bold">
-                        {FIELD_LABELS.originationDate}
-                      </span>
-                      <span className="rrvv-mis-creditos__label">
-                        {formatDate(creditInformation?.loanOriginationDate)}
-                      </span>
-                    </div>
-                    <div className="rrvv-mis-creditos__info-row">
-                      <span className="rrvv-mis-creditos__label-bold">
-                        {FIELD_LABELS.term}
-                      </span>
-                      <span className="rrvv-mis-creditos__label">
-                        {formatValue(creditInformation?.term)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="rrvv-mis-creditos__conditions-divider" />
-                  <div className="rrvv-mis-creditos__conditions-box">
-                    <div className="rrvv-mis-creditos__info-row">
-                      <span className="rrvv-mis-creditos__label-bold">
-                        {FIELD_LABELS.grantedCredit}
-                      </span>
-                      <span className="rrvv-mis-creditos__label">
-                        {formatCurrencyCLP(
-                          creditInformation?.totalFinancedAmount,
-                        )}
-                      </span>
-                    </div>
-                    <div className="rrvv-mis-creditos__info-row">
-                      <span className="rrvv-mis-creditos__label-bold">
-                        {FIELD_LABELS.interestRate}
-                      </span>
-                      <span className="rrvv-mis-creditos__label">
-                        {formatValue(creditInformation?.interestRate)}
-                      </span>
-                    </div>
-                    <div className="rrvv-mis-creditos__info-row">
-                      <span className="rrvv-mis-creditos__label-bold">
-                        {FIELD_LABELS.installments}
-                      </span>
-                      <span className="rrvv-mis-creditos__label">
-                        {formatValue(creditInformation?.totalInstallments)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </Card>
-      )}
-    </>
-  );
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
-export default Credit;
+export const formatValue = (value: string | number | null | undefined) => {
+  if (value === null || value === undefined || value === '') {
+    return '--';
+  }
+
+  return String(value);
+};
+
+export const formatDate = (value: string | null | undefined, tab = '/') => {
+  if (!value || value === '-') {
+    return '--';
+  }
+
+  const parts = value.split('-');
+  if (parts.length !== 3) {
+    return value;
+  }
+
+  const [first, month, last] = parts;
+  // El backend entrega DD-MM-YYYY, pero los mocks usan YYYY-MM-DD.
+  const [year, day] = first.length === 4 ? [first, last] : [last, first];
+  if (!year || !month || !day) {
+    return value;
+  }
+
+  return `${day}${tab}${month}${tab}${year}`;
+};
+
+export const formatPensionAmount = (
+  value: string | number | null | undefined,
+) => {
+  if (value === null || value === undefined || value === '') {
+    return '--';
+  }
+
+  const raw = String(value).trim();
+  // El separador decimal puede ser ',' (backend CL) o '.' (mocks).
+  const match = raw.match(/^(-?\d+)(?:[.,](\d+))?$/);
+  if (!match) {
+    return raw;
+  }
+
+  const [, integerPart, decimals = ''] = match;
+  // Truncar a 2 decimales por slice — sin aproximar.
+  const truncatedDecimals = decimals.slice(0, 2).padEnd(2, '0');
+
+  return `${integerPart},${truncatedDecimals} UF`;
+};
+
+export const formatPersonName = (value: string | null | undefined) => {
+  if (!value || value.trim().length === 0) {
+    return '--';
+  }
+
+  return value.trim().toLowerCase().split(/\s+/).map(capitalize).join(' ');
+};
+
+export const capitalize = (str: string) =>
+  str.charAt(0).toUpperCase() + str.slice(1);
+
+export const isMissing = (value: string | number | null | undefined) =>
+  value === null ||
+  value === undefined ||
+  value === '' ||
+  value === '--' ||
+  value === '-';
