@@ -1,12 +1,5 @@
-a oks, el nombre la rama la puedes crear a libre disposición.
-Pero la estructura para tu caso seria feature/nombre-pr
- 
-el nombre por lo general es a modo de ejemplo feature/marcaje-rrvv
- 
-vale
- 
-luego cuando hagas push y abras el pr hay un templeate. el titulo de la pr seria feat: código ticker : Nombre del ticket
-Y en la descripcion le puedes decir a copilot de github que te lo complete.
-En la parte de arriba debe de cambiar la rama de origen, ya que por defecto apunta a main y lo debe de cambiar a la release
- 
-release/2.2.0-home
+git checkout -b feature/marcaje-rrvv
+# pega aquí tus cambios, luego:
+git add .
+git commit -m "Mark RRVV Adobe errors for empty fields and service failures."
+git push -u origin feature/marcaje-rrvv
