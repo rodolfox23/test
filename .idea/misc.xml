@@ -16,6 +16,8 @@ const FIELD_LABELS = {
   mode: 'Modalidad',
 } as const;
 
+type FieldLabel = (typeof FIELD_LABELS)[keyof typeof FIELD_LABELS];
+
 interface PolicyCardProps {
   agreementNumber: string;
   policyInformation?: PolicyInformation;
@@ -50,7 +52,7 @@ const PolicyCard = ({
         ? FIELD_LABELS.startValidity
         : null,
       isMissing(modePension.name) ? FIELD_LABELS.mode : null,
-    ].filter((field): field is string => field !== null);
+    ].filter((field): field is FieldLabel => field !== null);
 
     if (missing.length === 0) {
       hasReportedRef.current = false;
