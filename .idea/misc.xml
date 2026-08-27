@@ -1,5 +1,146 @@
-git checkout -b feature/marcaje-rrvv
-# pega aquí tus cambios, luego:
-git add .
-git commit -m "Mark RRVV Adobe errors for empty fields and service failures."
-git push -u origin feature/marcaje-rrvv
+import { useAdobeAnalytics } from '@hooks/useAdobeAnalytics';
+import { Card } from '@metlife-csp/react';
+import type { PolicyInformation } from '@services/usePolicyInformation/usePolicyInformation.model';
+import type { PaymentScheduleV2Item } from '@services/usePolicyInformation/usePolicyInformation.ts';
+import { useEffect, useRef } from 'react';
+import SummaryTooltip from '../../../SummaryTooltip';
+import { formatDate, formatPensionAmount, formatPersonName } from '../helpers';
+
+const isMissing = (value: string) => !value || value === '--' || value === '-';
+
+const FIELD_LABELS = {
+  policy: 'Póliza',
+  pensioner: 'Pensionado',
+  grossPension: 'Pensión bruta',
+  startValidity: 'Inicio de vigencia',
+  mode: 'Modalidad',
+} as const;
+
+interface PolicyCardProps {
+  agreementNumber: string;
+  policyInformation?: PolicyInformation;
+  isMobileView: boolean;
+  paymentScheduleData?: PaymentScheduleV2Item;
+  modePension: {
+    name: string;
+    time?: string;
+  };
+}
+
+const PolicyCard = ({
+  agreementNumber,
+  policyInformation,
+  modePension,
+  isMobileView,
+  paymentScheduleData,
+}: PolicyCardProps) => {
+  const { registerErrorData } = useAdobeAnalytics();
+  const hasReportedRef = useRef(false);
+
+  useEffect(() => {
+    const missing = [
+      !agreementNumber ? FIELD_LABELS.policy : null,
+      isMissing(formatPersonName(policyInformation?.nameContracting))
+        ? FIELD_LABELS.pensioner
+        : null,
+      isMissing(formatPensionAmount(policyInformation?.amountPensionUF))
+        ? FIELD_LABELS.grossPension
+        : null,
+      isMissing(formatDate(paymentScheduleData?.startValidityDate))
+        ? FIELD_LABELS.startValidity
+        : null,
+      isMissing(modePension.name) ? FIELD_LABELS.mode : null,
+    ].filter((field): field is string => field !== null);
+
+    if (missing.length === 0) {
+      hasReportedRef.current = false;
+      return;
+    }
+
+    if (hasReportedRef.current) return;
+    hasReportedRef.current = true;
+    registerErrorData(
+      'error de carga de Datos',
+      '404',
+      `No se muestra el componente ${missing.join(', ')}`,
+    );
+  }, [
+    agreementNumber,
+    policyInformation?.nameContracting,
+    policyInformation?.amountPensionUF,
+    paymentScheduleData?.startValidityDate,
+    modePension.name,
+    registerErrorData,
+  ]);
+
+  return (
+    <Card>
+      <div className="rrvv-mi-pension__summary">
+        <div className="rrvv-mi-pension__summary-column">
+          <div className="rrvv-mi-pension__summary-item">
+            <span className="rrvv-mi-pension__summary-label">
+              {FIELD_LABELS.policy}
+            </span>
+            <span className="rrvv-mi-pension__summary-value">
+              {agreementNumber || '--'}
+            </span>
+          </div>
+          <div className="rrvv-mi-pension__summary-item">
+            <span className="rrvv-mi-pension__summary-label">
+              {FIELD_LABELS.pensioner}
+            </span>
+            <span className="rrvv-mi-pension__summary-value">
+              {formatPersonName(policyInformation?.nameContracting)}
+            </span>
+          </div>
+          <div className="rrvv-mi-pension__summary-item">
+            <span className="rrvv-mi-pension__summary-label">
+              {FIELD_LABELS.grossPension}
+              <SummaryTooltip
+                id="rrvv-tooltip-pension-bruta"
+                label={FIELD_LABELS.grossPension}
+                textContent="Es el monto sin los descuentos legales."
+                positionArrow={isMobileView ? 'center' : 'left'}
+              />
+            </span>
+            <span className="rrvv-mi-pension__summary-value">
+              {formatPensionAmount(policyInformation?.amountPensionUF)}
+            </span>
+          </div>
+        </div>
+        {!isMobileView && (
+          <>
+            <div className="rrvv-mi-pension__summary-divider" />
+
+            <div className="rrvv-mi-pension__summary-column">
+              <div className="rrvv-mi-pension__summary-item">
+                <span className="rrvv-mi-pension__summary-label">
+                  {FIELD_LABELS.startValidity}
+                </span>
+                <span className="rrvv-mi-pension__summary-value">
+                  {formatDate(paymentScheduleData?.startValidityDate)}
+                </span>
+              </div>
+              <div className="rrvv-mi-pension__summary-item">
+                <span className="rrvv-mi-pension__summary-label">
+                  {FIELD_LABELS.mode}
+                  <SummaryTooltip
+                    id="rrvv-tooltip-modalidad"
+                    label="Modalidades"
+                    textContent="Puede ser inmediata, diferida o con retiro programado donde comenzarás a recibir tu pensión."
+                  />
+                </span>
+                <span className="rrvv-mi-pension__summary-value">
+                  {modePension.name}
+                  {modePension.time ? ` (${modePension.time} meses)` : ''}
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </Card>
+  );
+};
+
+export default PolicyCard;
